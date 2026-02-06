@@ -4,9 +4,11 @@
 
 Skills for epoch-based task management, multi-agent coordination, and multi-repo development.
 
+> **Mirror Notice:** This repository is a GitHub mirror of the skills maintained in the [Smart Assets GitLab profile](https://gitlab.com/smart-assets.io/gitlab-profile/). The GitLab repository is the source of truth. This mirror exists so that skills can be installed directly via the OpenSkills CLI from GitHub.
+
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 npx openskills install SmartAssets-io/skills
