@@ -1,0 +1,651 @@
+# Smart Asset Intrinsics Master Schema
+# This file defines the available SAIntrinsics for Smart Asset creation
+# Used by /create-smart-asset command to present intrinsic options
+#
+# Source of truth: git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/
+
+schema_version: "1.1"
+last_updated: "2026-01-10"
+
+# Intrinsic categories for organization
+# Categories align with SAIntrinsics README.md layer hierarchy
+categories:
+  core:
+    description: "Core processing - computational and decision-making intrinsics"
+    layer: 1
+    intrinsics:
+      - deepNetwork
+      - AllocationEngine
+      - GovernanceExecutor
+      - oracle
+
+  treasury:
+    description: "Value storage and routing - accumulation, storage, distribution"
+    layer: 2
+    intrinsics:
+      - TradTreasury
+      - SmartTreasury
+      - income_stream
+      - PaymentBuffer
+
+  distribution:
+    description: "Distribution and scheduling - outbound value flows"
+    layer: 3
+    intrinsics:
+      - auto-fill
+      - auto-top
+      - yield
+      - HTLC
+
+  boundary:
+    description: "Gates - boundary control points for value/data crossing"
+    layer: 4
+    intrinsics:
+      - MultiSigGate
+      - MultiSigApproval
+      - paymentGate
+      - RateLimiter
+
+  state:
+    description: "Data and services - storage, retrieval, service exposure"
+    layer: 5
+    intrinsics:
+      - dataService
+      - dataRepository
+      - AuditLog
+
+  governance:
+    description: "Governance - voting, proposals, policy enforcement"
+    layer: 6
+    intrinsics:
+      - GovernanceExecutor
+      - Voting
+
+# Detailed intrinsic definitions
+# element_ref uses git+ssh URLs to SAIntrinsics repository
+intrinsics:
+  TradTreasury:
+    name: "TradTreasury"
+    description: "Multi-sig value storage vault for crypto assets"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/TradTreasury.md"
+    icon: "TradTreasury.png"
+    category: treasury
+    layer: 2
+    interfaces:
+      inputs:
+        - type: value
+          description: "Incoming value allocations"
+      outputs:
+        - type: value
+          description: "Outgoing distributions"
+        - type: signal
+          description: "Balance/rebalancing signals"
+    config_params:
+      - name: multisig_n
+        type: integer
+        description: "Required signatures (n of m)"
+      - name: multisig_m
+        type: integer
+        description: "Total signers"
+      - name: whitelist_addresses
+        type: array
+        description: "Approved destination addresses"
+
+  PaymentBuffer:
+    name: "PaymentBuffer"
+    description: "Buffered payments for external services (oracles, data feeds)"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/PaymentBuffer.md"
+    icon: "PaymentBuffer.png"
+    category: treasury
+    layer: 2
+    interfaces:
+      inputs:
+        - type: value
+          description: "Funding from treasury"
+      outputs:
+        - type: value
+          description: "Service payments"
+    config_params:
+      - name: batch_interval_s
+        type: integer
+        description: "Payment batch interval in seconds"
+        default: 86400
+      - name: supported_assets
+        type: array
+        description: "Accepted payment assets"
+      - name: auto_topup
+        type: boolean
+        description: "Auto-replenish when low"
+      - name: low_balance_threshold
+        type: float
+        description: "Threshold for low balance alerts"
+
+  oracle:
+    name: "Oracle"
+    description: "External data feed aggregation and signal synthesis"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/oracle.md"
+    icon: "oracle.png"
+    category: core
+    layer: 1
+    interfaces:
+      inputs:
+        - type: signal
+          description: "External data feeds"
+        - type: value
+          description: "Oracle fee payments"
+      outputs:
+        - type: signal
+          description: "Synthesized signals"
+    config_params:
+      - name: feed_timeout_ms
+        type: integer
+        description: "Max wait for feed response"
+        default: 5000
+      - name: stale_threshold_s
+        type: integer
+        description: "Seconds before feed is stale"
+        default: 60
+      - name: aggregation_method
+        type: string
+        description: "Feed combination method"
+        default: "weighted_average"
+
+  deepNetwork:
+    name: "Deep Network"
+    description: "AI/ML allocation engine for decision making"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/deepNetwork.md"
+    icon: "deepNetwork.png"
+    category: core
+    layer: 1
+    interfaces:
+      inputs:
+        - type: signal
+          description: "Oracle signals and feedback"
+      outputs:
+        - type: signal
+          description: "Allocation decisions"
+    config_params:
+      - name: learning_rate
+        type: float
+        description: "Strategy adaptation rate"
+      - name: model_type
+        type: string
+        description: "Network architecture type"
+
+  auto-fill:
+    name: "Auto-fill"
+    description: "Programmatic outbound distribution to targets"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/auto-fill.md"
+    icon: null
+    category: distribution
+    layer: 3
+    interfaces:
+      inputs:
+        - type: value
+          description: "Value to distribute"
+        - type: signal
+          description: "Distribution triggers"
+      outputs:
+        - type: value
+          description: "Distributed value"
+    config_params:
+      - name: distribution_rules
+        type: object
+        description: "Rules for target allocation"
+      - name: schedule
+        type: object
+        description: "Distribution schedule"
+
+  auto-top:
+    name: "Auto-top"
+    description: "Automatic SA Credits (Battery) replenishment"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/auto-top.md"
+    icon: null
+    category: distribution
+    layer: 3
+    interfaces:
+      inputs:
+        - type: value
+          description: "Replenishment source"
+      outputs:
+        - type: value
+          description: "SA Credits top-up"
+    config_params:
+      - name: threshold
+        type: float
+        description: "Low battery threshold"
+      - name: target_level
+        type: float
+        description: "Target charge level"
+
+  income_stream:
+    name: "Income Stream"
+    description: "Revenue aggregation from multiple sources"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/income_stream.md"
+    icon: null
+    category: treasury
+    layer: 2
+    interfaces:
+      inputs:
+        - type: value
+          description: "Income sources"
+      outputs:
+        - type: value
+          description: "Aggregated income"
+    config_params:
+      - name: sources
+        type: array
+        description: "Income source definitions"
+      - name: aggregation_period
+        type: string
+        description: "Aggregation time period"
+
+  MultiSigGate:
+    name: "Multi-Sig Gate"
+    description: "Boundary gate enforcing n-of-m signature authorization"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/MultiSigGate.md"
+    icon: "MultiSigGate.png"
+    category: boundary
+    layer: 4
+    interfaces:
+      inputs:
+        - type: value
+          description: "Value pending approval"
+      outputs:
+        - type: value
+          description: "Approved transfers"
+    config_params:
+      - name: multisig_n
+        type: integer
+        description: "Required signatures"
+      - name: multisig_m
+        type: integer
+        description: "Total signers"
+      - name: approval_timeout_s
+        type: integer
+        description: "Approval timeout"
+        default: 86400
+      - name: require_whitelist
+        type: boolean
+        description: "Require destination whitelist"
+      - name: timelock_period_s
+        type: integer
+        description: "Timelock before execution"
+
+  MultiSigApproval:
+    name: "Multi-Sig Approval"
+    description: "Multi-signature approval workflow component"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/MultiSigApproval.md"
+    icon: "MultiSigApproval.png"
+    category: boundary
+    layer: 4
+    interfaces:
+      inputs:
+        - type: signal
+          description: "Approval requests"
+      outputs:
+        - type: signal
+          description: "Approval status"
+
+  dataService:
+    name: "Data Service"
+    description: "Monetized data feeds for external consumers"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/dataService.md"
+    icon: null
+    category: state
+    layer: 5
+    interfaces:
+      inputs:
+        - type: value
+          description: "Service fee payments"
+      outputs:
+        - type: signal
+          description: "Data feed output"
+    config_params:
+      - name: fee_structure
+        type: object
+        description: "Pricing for data access"
+      - name: rate_limits
+        type: object
+        description: "Consumer rate limits"
+
+  # New intrinsics from SmartAssetPrimitives (v1.1)
+
+  SmartTreasury:
+    name: "Smart Treasury"
+    description: "Orchestrates multiple TradTreasuries with allocation logic"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/SmartTreasury.md"
+    icon: "SmartTreasury.png"
+    category: treasury
+    layer: 2
+    interfaces:
+      inputs:
+        - type: value
+          description: "Incoming allocations"
+        - type: signal
+          description: "Allocation signals from deep network"
+      outputs:
+        - type: value
+          description: "Distributed value to sub-treasuries"
+        - type: signal
+          description: "Balance and status signals"
+
+  AllocationEngine:
+    name: "Allocation Engine"
+    description: "Decides asset distribution across treasuries"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/AllocationEngine.md"
+    icon: null
+    category: core
+    layer: 1
+    interfaces:
+      inputs:
+        - type: signal
+          description: "Market signals and oracle data"
+      outputs:
+        - type: signal
+          description: "Allocation decisions"
+    config_params:
+      - name: strategy
+        type: string
+        description: "Allocation strategy type"
+      - name: rebalance_threshold
+        type: float
+        description: "Threshold for triggering rebalance"
+
+  GovernanceExecutor:
+    name: "Governance Executor"
+    description: "Executes approved governance proposals"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/GovernanceExecutor.md"
+    icon: null
+    category: governance
+    layer: 6
+    interfaces:
+      inputs:
+        - type: signal
+          description: "Approved governance proposals"
+      outputs:
+        - type: signal
+          description: "Execution status"
+    config_params:
+      - name: execution_delay_s
+        type: integer
+        description: "Delay before execution"
+      - name: require_quorum
+        type: boolean
+        description: "Require quorum for execution"
+
+  Voting:
+    name: "Voting"
+    description: "Unit holder voting mechanisms"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/Voting.md"
+    icon: null
+    category: governance
+    layer: 6
+    interfaces:
+      inputs:
+        - type: signal
+          description: "Proposals for voting"
+      outputs:
+        - type: signal
+          description: "Vote results"
+    config_params:
+      - name: voting_period_s
+        type: integer
+        description: "Duration of voting period"
+      - name: quorum_threshold
+        type: float
+        description: "Required quorum percentage"
+      - name: approval_threshold
+        type: float
+        description: "Required approval percentage"
+
+  AuditLog:
+    name: "Audit Log"
+    description: "Event logging and compliance tracking"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/AuditLog.md"
+    icon: null
+    category: state
+    layer: 5
+    interfaces:
+      inputs:
+        - type: signal
+          description: "Events to log"
+      outputs:
+        - type: signal
+          description: "Log queries and reports"
+    config_params:
+      - name: retention_days
+        type: integer
+        description: "Log retention period"
+      - name: compliance_mode
+        type: string
+        description: "Compliance standard to follow"
+
+  dataRepository:
+    name: "Data Repository"
+    description: "Internal data storage and retrieval"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/dataRepository.md"
+    icon: null
+    category: state
+    layer: 5
+    interfaces:
+      inputs:
+        - type: signal
+          description: "Data write requests"
+      outputs:
+        - type: signal
+          description: "Data read responses"
+    config_params:
+      - name: storage_type
+        type: string
+        description: "Storage backend type"
+      - name: encryption
+        type: boolean
+        description: "Enable encryption at rest"
+
+  yield:
+    name: "Yield"
+    description: "Yield generation and distribution logic"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/yield.md"
+    icon: null
+    category: distribution
+    layer: 3
+    interfaces:
+      inputs:
+        - type: value
+          description: "Principal for yield generation"
+      outputs:
+        - type: value
+          description: "Generated yield"
+    config_params:
+      - name: yield_strategy
+        type: string
+        description: "Yield generation strategy"
+      - name: distribution_frequency
+        type: string
+        description: "How often yield is distributed"
+
+  HTLC:
+    name: "HTLC"
+    description: "Hash Time-Locked Contracts for atomic swaps"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/HTLC.md"
+    icon: null
+    category: distribution
+    layer: 3
+    interfaces:
+      inputs:
+        - type: value
+          description: "Locked value"
+        - type: signal
+          description: "Hash preimage or timeout"
+      outputs:
+        - type: value
+          description: "Released value"
+    config_params:
+      - name: timeout_blocks
+        type: integer
+        description: "Timeout in blocks"
+      - name: hash_algorithm
+        type: string
+        description: "Hash algorithm for lock"
+        default: "sha256"
+
+  paymentGate:
+    name: "Payment Gate"
+    description: "Payment authorization checkpoint"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/paymentGate.md"
+    icon: null
+    category: boundary
+    layer: 4
+    interfaces:
+      inputs:
+        - type: value
+          description: "Pending payments"
+      outputs:
+        - type: value
+          description: "Authorized payments"
+    config_params:
+      - name: max_amount
+        type: float
+        description: "Maximum single payment amount"
+      - name: daily_limit
+        type: float
+        description: "Daily payment limit"
+
+  RateLimiter:
+    name: "Rate Limiter"
+    description: "Throttling for transfers and operations"
+    element_ref: "git+ssh://gitlab.com/smart-assets.io/smart-asset-primitives/SAIntrinsics.git/RateLimiter.md"
+    icon: null
+    category: boundary
+    layer: 4
+    interfaces:
+      inputs:
+        - type: value
+          description: "Incoming transfers"
+        - type: signal
+          description: "Operation requests"
+      outputs:
+        - type: value
+          description: "Rate-limited transfers"
+        - type: signal
+          description: "Rate-limited operations"
+    config_params:
+      - name: rate_limit
+        type: float
+        description: "Max operations per period"
+      - name: period_s
+        type: integer
+        description: "Rate limit period in seconds"
+      - name: burst_limit
+        type: integer
+        description: "Maximum burst allowance"
+
+# Template complexity levels
+templates:
+  simple:
+    description: "Minimal Smart Asset with single treasury and basic flow"
+    suggested_intrinsics:
+      - TradTreasury
+    sections:
+      - internal_elements
+      - sources
+      - sinks
+      - boundary
+
+  medium:
+    description: "Standard Smart Asset with oracle integration and gates"
+    suggested_intrinsics:
+      - TradTreasury
+      - oracle
+      - MultiSigGate
+    sections:
+      - external_services
+      - internal_elements
+      - boundary_gates
+      - sources
+      - sinks
+      - flows
+      - boundary
+
+  complex:
+    description: "Full-featured Smart Asset with deep network and automation"
+    suggested_intrinsics:
+      - SmartTreasury
+      - TradTreasury
+      - oracle
+      - deepNetwork
+      - AllocationEngine
+      - MultiSigGate
+      - PaymentBuffer
+      - auto-fill
+    sections:
+      - external_services
+      - internal_elements
+      - boundary_gates
+      - sources
+      - sinks
+      - flows
+      - boundary
+
+# Icon library reference
+icon_library:
+  default: "heroicons/24/outline"
+  common_icons:
+    - name: "wallet"
+      use_for: "SATCHEL/wallet destinations"
+    - name: "banknotes"
+      use_for: "Cash/value flows"
+    - name: "arrow-path"
+      use_for: "Reinvestment loops"
+    - name: "chart-bar"
+      use_for: "Data/market feeds"
+    - name: "cpu-chip"
+      use_for: "AI/ML components"
+    - name: "arrow-trending-up"
+      use_for: "Yield/growth"
+
+# Composition interface - canonical port positions per CompositionModel.md
+# These define the standard interface orientation for Smart Asset composition
+composition_interface:
+  signal_in:
+    position: top
+    description: "Signal/Oracle inputs - external data feeds and triggers enter"
+    flow_direction: inbound
+    edge_color: "signal"
+  signal_out:
+    position: bottom
+    description: "Signal/Oracle outputs - events and triggers propagate to composed assets"
+    flow_direction: outbound
+    edge_color: "signal"
+  value_in:
+    position: left
+    description: "Value inflow (optional) - crypto assets and income streams enter"
+    flow_direction: inbound
+    edge_color: "value"
+    optional: true
+  value_out:
+    position: right
+    description: "Value outflow (optional) - disbursements exit through gates"
+    flow_direction: outbound
+    edge_color: "value"
+    optional: true
+
+# Boundary position conventions (aligned with CompositionModel.md)
+boundary_positions:
+  # Canonical interface positions
+  top: "Signal/Oracle inputs (external feeds entering via signal_in)"
+  bottom: "Signal/Oracle outputs (outbound triggers via signal_out)"
+  left: "Value inflows (funding, income via value_in)"
+  right: "Value outflows (disbursements, distributions via value_out)"
+  # Internal element positions
+  core: "Core processing intrinsics (Layer 1)"
+  treasury: "Value storage intrinsics (Layer 2)"
+  distribution: "Distribution intrinsics (Layer 3)"
+  gate: "Boundary gates (Layer 4) - on boundary edge"
+  state: "Data and service intrinsics (Layer 5)"
+  governance: "Governance intrinsics (Layer 6)"
+  # Legacy positions (deprecated, use layer-based)
+  oracle: "Internal oracle elements (use core)"
+  aggregator: "Signal aggregation components (use core)"
+  service: "Service payment components (use state)"
