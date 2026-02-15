@@ -29,6 +29,11 @@ if [[ -z "${HARMONIZE_UI_LOADED:-}" ]]; then
     source "${HARMONIZE_FILE_OPS_SCRIPT_DIR}/harmonize-ui.sh"
 fi
 
+# Source repo-selection library (optional - graceful if missing)
+if [[ -f "${HARMONIZE_FILE_OPS_SCRIPT_DIR}/repo-selection.sh" ]]; then
+    source "${HARMONIZE_FILE_OPS_SCRIPT_DIR}/repo-selection.sh"
+fi
+
 # LIB_DIR for Python helpers (can be overridden)
 LIB_DIR="${LIB_DIR:-$HARMONIZE_FILE_OPS_SCRIPT_DIR}"
 
@@ -101,14 +106,16 @@ discover_repos() {
     fi
 
     # Find all .git directories (limit depth to avoid excessive scanning)
-    # maxdepth 8 allows for reasonable nesting: workspace/category/project/.git
+    # SCAN_DEPTH (default 8) allows for reasonable nesting: workspace/category/project/.git
+    # Use --depth N to limit: 1 = root only, 2 = root + immediate children, etc.
     # Use -prune to avoid descending into heavy directories (node_modules, vendor, etc.)
     # For .git: match and print it, then prune to avoid descending (handles submodules)
+    local max_depth="${SCAN_DEPTH:-8}"
     while IFS= read -r git_dir; do
         local repo_dir
         repo_dir=$(dirname "$git_dir")
         repos+=("$repo_dir")
-    done < <(find "$target" -maxdepth 8 \
+    done < <(find "$target" -maxdepth "$max_depth" \
         \( -name node_modules -o -name vendor -o -name __pycache__ \) -prune \
         -o -type d -name ".git" -print -prune \
         2>/dev/null | sort)
@@ -116,6 +123,24 @@ discover_repos() {
     if [[ ${#repos[@]} -eq 0 ]]; then
         log_error "No git repositories found under: $target"
         return 1
+    fi
+
+    # Filter through repo selection if config is loaded
+    if [[ -n "${REPO_SELECTION_CONFIG:-}" ]] && type -t is_repo_selected &>/dev/null; then
+        local filtered=()
+        for repo in "${repos[@]}"; do
+            local rel_path
+            rel_path=$(realpath --relative-to="$target" "$repo" 2>/dev/null || echo "$repo")
+            rel_path="${rel_path#./}"  # Strip ./ prefix (macOS realpath lacks --relative-to)
+            if is_repo_selected "$rel_path"; then
+                filtered+=("$repo")
+            fi
+        done
+        if [[ ${#filtered[@]} -eq 0 ]]; then
+            log_error "No repositories matched the selection config"
+            return 1
+        fi
+        repos=("${filtered[@]}")
     fi
 
     # Output repo paths

@@ -4,6 +4,23 @@ description: Create, link, and synchronize user stories with epochs providing bi
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/story <subcommand> [arguments]
+
+Subcommands:
+  create "TITLE"        Create a new user story in docs/UserStories.md
+  link STORY-ID EPOCH-ID  Link a story to an epoch (bi-directional)
+  sync                  Synchronize links between UserStories.md and ToDos.md
+
+Manages user stories with bi-directional linking to epochs.
+```
+
+---
+
 # Story Management
 
 Create, link, and synchronize user stories with epochs. This command provides command-line management of user stories in `docs/UserStories.md` with bi-directional linking to epochs in `docs/ToDos.md`.

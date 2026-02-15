@@ -10,6 +10,23 @@ allowed-tools:
   - Grep
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/harmonize [OPTIONS]
+
+Options:
+  --depth N             Max scan depth for repo discovery (default: 8)
+  --dry-run             Preview changes without modifying files
+  --yes, -y             Auto-apply without prompting
+  --verbose             Show detailed output per file
+  --no-color            Disable colored output
+```
+
+---
+
 # Harmonize Policies
 
 Synchronize policies, approaches, and conventions across repositories. This command harmonizes target projects with the patterns and standards defined in `top-level-gitlab-profile`.
@@ -543,6 +560,10 @@ Harmonization generates `.claude/` directory files for target repos:
 - **`worktree-config.json`** - Worktree placement convention with workspace-relative root
 
 Existing files are never overwritten.
+
+## Repo Selection
+
+When called via `/multi-repo-sync`, harmonization respects the saved repo selection config (`.multi-repo-selection.json`). Only selected repositories will be harmonized. Use `/multi-repo-sync --all` to bypass the selection for a single run, or `/multi-repo-sync --wizard` to interactively select repos.
 
 ## Workspace-Wide Sync
 

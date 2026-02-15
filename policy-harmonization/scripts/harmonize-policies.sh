@@ -45,6 +45,11 @@ OUTPUT_WIDTH=64
 # Smart Asset scaffolding control
 SCAFFOLD_SA="auto"
 
+# Scan depth for repository discovery (find -maxdepth)
+# Default 8 allows for: workspace/category/project/.git
+# Use --depth 1 to limit to just the root repository
+SCAN_DEPTH=8
+
 # Exit codes
 EXIT_SUCCESS=0
 EXIT_NO_REPOS=1
@@ -89,6 +94,8 @@ Options:
   --source DIR      Source template directory (default: auto-detected)
   --verbose         Show detailed diff output
   --no-color        Disable colored output
+  --depth N         Limit repository scan depth (default: 8)
+                        1 = root repo only, 2 = root + immediate children, etc.
   --scaffold-sa[=MODE]  Control Smart Asset scaffolding behavior
                         auto  - Use mode defaults (default)
                         ask   - Always prompt before scaffolding
@@ -117,6 +124,7 @@ Examples:
   $(basename "$0") SATCHEL/ --verbose # Detailed output
   $(basename "$0") --scaffold-sa=skip # Skip Smart Asset scaffolding
   $(basename "$0") --scaffold-sa=force # Force scaffold without prompts
+  $(basename "$0") --depth 1           # Harmonize root repo only
 
 Exit Codes:
   0    Success
@@ -224,6 +232,12 @@ parse_args() {
             --verbose) VERBOSE=true; shift ;;
             --no-color) NO_COLOR=1; shift ;;
             --yes|-y) MODE="yolo"; shift ;;
+            --depth)
+                if [[ -z "${2:-}" ]] || [[ ! "$2" =~ ^[0-9]+$ ]]; then
+                    log_error "--depth requires a positive integer argument"
+                    exit $EXIT_INVALID_ARGS
+                fi
+                SCAN_DEPTH="$2"; shift 2 ;;
             --scaffold-sa) SCAFFOLD_SA="ask"; shift ;;
             --scaffold-sa=*)
                 local sa_value="${1#*=}"

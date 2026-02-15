@@ -4,6 +4,22 @@ description: Show git commit hash and date for workflow tools and current reposi
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/version [OPTIONS]
+
+Options:
+  --json                Machine-readable JSON output
+  MULTI_REPO=true       Show all repos in workspace (env var)
+
+Default: Shows workflow tools version + current repo.
+```
+
+---
+
 You are helping the user check the version of their workflow tools and repositories.
 
 **Purpose**: Provide users with commit hash and date information to verify they're on the current iteration of the workflow.

@@ -4,6 +4,24 @@ description: Scan task tracking files for epoch completion status and perform hy
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/epoch-hygiene [OPTIONS]
+
+Options:
+  --json                Machine-readable JSON output
+  --verbose             Detailed output for debugging
+  --archive             Archive completed epochs to CompletedTasks.md
+  --validate            Validate YAML integrity only (no changes)
+
+Scans docs/ToDos.md for completed epochs and performs cleanup.
+```
+
+---
+
 # Epoch Hygiene
 
 Scan task tracking files for epoch completion status and perform hygiene operations (archiving completed epochs, cleaning up stale work logs, validating YAML integrity).

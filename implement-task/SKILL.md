@@ -4,6 +4,23 @@ description: Begin implementation of the next task supporting both IPC and stigm
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/implement [TASK-ID]
+
+Arguments:
+  [TASK-ID]             Specific task to implement (e.g., TASK-001)
+
+Default: Implements the task identified by /nextTask.
+Supports IPC and stigmergic coordination with epoch-aware progress tracking.
+Prerequisite: Run /nextTask first (or have task context ready).
+```
+
+---
+
 # Implement Next Task
 
 Begin implementation of the task identified by `/nextTask`. This command assumes you have already reviewed the task and explained the approach to the user.

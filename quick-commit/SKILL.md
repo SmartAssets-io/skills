@@ -8,6 +8,23 @@ allowed-tools:
   - Grep
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/quick-commit [OPTIONS] [message]
+
+Options:
+  --single-repo         Commit only in current directory (skip multi-repo detection)
+  --discover            Discover repos with changes (multi-repo mode)
+  [message]             Commit message (auto-generated if omitted)
+
+Repo selection: Honors .multi-repo-selection.json if present. MULTI_REPO_ALL=true to bypass.
+```
+
+---
+
 ## Invocation Guard
 
 This skill requires explicit user invocation via `/quick-commit`. It must not be triggered proactively by the assistant after completing code changes, passing tests, or finishing tasks.
@@ -30,12 +47,20 @@ You are helping the user create git commits (single-repo or multi-repo mode).
 | `~/.claude` | `claude` / `claude-safe` | Restrictive hooks block direct git commands. Use this `/quick-commit` command for commits (requires user permission approval) |
 | `~/.claude-agentic` | `claude-agentic` | No restrictive hooks. Direct git commands allowed, but this command still provides intelligent commit messages |
 
+**Repo selection**: In multi-repo mode, if a `.multi-repo-selection.json` config exists in the workspace root (created by `/multi-repo-sync --wizard`), discovery will only show repos matching the selection. Set `MULTI_REPO_ALL=true` to bypass.
+
 **Auto-detection for multi-repo**: This command uses deterministic mode detection via the `--detect-mode` flag:
 1. Call `quick-commit.sh --detect-mode` first (returns JSON with mode decision)
-2. The script checks `MULTI_REPO` environment variable
+2. The script checks `MULTI_REPO` environment variable (`true` forces multi-repo, `false` forces single-repo)
 3. If not set, the script searches for nested `.git` directories from current directory downward
 4. Returns `"single-repo"` or `"multi-repo"` - Claude uses this to decide workflow
 5. **Claude NEVER runs bash commands to detect mode** - the script handles it deterministically
+
+**CWD-only / single-repo override**: When the user requests committing only in the current working directory (e.g., `/quick-commit - only current directory`), use `--single-repo` to bypass multi-repo auto-detection:
+- Pass `--single-repo` as the first argument: `quick-commit.sh --single-repo "message"`
+- This forces single-repo mode regardless of nested repositories
+- Only tracked changes in the CWD's git repository are committed
+- **Skip `--detect-mode`** when using `--single-repo` - mode is already determined
 
 ---
 
@@ -76,7 +101,12 @@ scripts/quick-commit.sh
 
 **CRITICAL: Use the deterministic script for mode detection. NEVER run bash commands directly to detect mode.**
 
-Before proceeding, call the script's `--detect-mode` flag:
+**If the user requested CWD-only or single-repo commit**: Skip `--detect-mode` entirely. Go straight to the Single-Repo Mode workflow using `--single-repo`:
+```bash
+scripts/quick-commit.sh --single-repo "commit message"
+```
+
+**Otherwise**, call the script's `--detect-mode` flag:
 
 ```bash
 scripts/quick-commit.sh --detect-mode
@@ -89,13 +119,15 @@ This returns JSON:
   "reason": "no nested repositories found",
   "nested_repo_count": 0,
   "git_root": "/path/to/repo",
-  "working_directory": "/path/to/current/dir"
+  "working_directory": "/path/to/current/dir",
+  "single_repo_override": "--single-repo flag bypasses auto-detection"
 }
 ```
 
 **Why this approach:**
 - The script handles detection logic deterministically in bash
 - Searches from current working directory downward only (never parent directories)
+- `--single-repo` provides explicit CWD-only override for multi-repo workspaces
 - No room for Claude to make directory-changing mistakes
 - Consistent behavior across all sessions
 - Version-controlled, testable code
@@ -251,7 +283,11 @@ Options:
 Run the bash script with the commit message:
 
 ```bash
+# If --detect-mode returned single-repo (or no nested repos):
 scripts/quick-commit.sh "your commit message here"
+
+# If user requested CWD-only in a multi-repo workspace:
+scripts/quick-commit.sh --single-repo "your commit message here"
 ```
 
 **Note**: In safe mode, the hook will prompt: "Claude wants to run quick-commit.sh. ONLY ALLOW if YOU typed /quick-commit. DENY if you did not request a commit." The user must approve.
@@ -433,6 +469,18 @@ Claude: [runs git diff on tracked files only]
         [script commits tracked files only, warns about untracked]
 ```
 
+### CWD-only: Force single-repo in multi-repo workspace
+```
+User: /quick-commit - only commit files in the current directory
+Claude: [user requested CWD-only - skip --detect-mode]
+        [runs git status --short - sees 3 files modified in root repo]
+        [runs git diff to see ALL changes]
+        [generates message: "docs: consolidate tracking files"]
+        [runs: ~/src/.../quick-commit.sh --single-repo "docs: consolidate tracking files"]
+        [hook prompts, user approves]
+        [script commits only root repo changes, ignores nested repos]
+```
+
 ### Multi-repo: Basic commit
 ```
 User: /quick-commit
@@ -510,8 +558,11 @@ Claude: [for each repo: analyzes diffs, generates messages]
 ## Script Reference
 
 ```bash
-# Single-repo mode
+# Single-repo mode (auto-detected or natural single-repo)
 scripts/quick-commit.sh "commit message"
+
+# Single-repo mode (forced, bypasses multi-repo auto-detection)
+scripts/quick-commit.sh --single-repo "commit message"
 
 # Multi-repo mode (MULTI_REPO=true)
 MULTI_REPO=true scripts/quick-commit.sh --discover

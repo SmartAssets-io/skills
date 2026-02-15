@@ -4,6 +4,21 @@ description: Push unpushed commits across all repositories in the workspace
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/recursive-push
+
+Pushes unpushed commits across all repositories in the workspace.
+Auto-detects single-repo vs multi-repo mode.
+
+Repo selection: Honors .multi-repo-selection.json if present. MULTI_REPO_ALL=true to bypass.
+```
+
+---
+
 You are helping the user push git commits across multiple repositories.
 
 **Claude Config Modes**: This command works in both claude configurations:
@@ -12,6 +27,8 @@ You are helping the user push git commits across multiple repositories.
 |--------|---------|----------|
 | `~/.claude` | `claude` / `claude-safe` | Restrictive hooks block direct `git push`. Use `agentic-git-commit-push.sh --push-only` script |
 | `~/.claude-agentic` | `claude-agentic` | No restrictive hooks. Can use direct git push OR the script |
+
+**Repo selection**: In multi-repo mode, if a `.multi-repo-selection.json` config exists in the workspace root (created by `/multi-repo-sync --wizard`), operations will be scoped to the selected repos. Set `MULTI_REPO_ALL=true` to bypass.
 
 **Auto-detection for multi-repo**: This command automatically detects the appropriate scope:
 1. If `MULTI_REPO=true` is set, uses multi-repo mode
