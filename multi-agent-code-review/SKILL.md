@@ -4,6 +4,24 @@ description: Perform multi-agent code review using multiple LLM providers with c
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/multi-review [OPTIONS] [PR#|MR#|URL]
+
+Options:
+  --create              Create PR/MR first, then review
+  --target BRANCH       Target branch for --create (default: dev)
+  --providers LIST      Comma-separated providers (anthropic,openai,google,xai)
+  --model MODEL         Override default model per provider
+  --post                Post results to PR/MR (default: display only)
+  --json                JSON output
+```
+
+---
+
 # Multi-Agent PR/MR Review
 
 Perform a multi-agent code review using multiple LLM providers (Anthropic, OpenAI, Google, xAI) and post the aggregated results to a GitHub PR or GitLab MR.

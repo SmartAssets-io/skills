@@ -4,6 +4,23 @@ description: Create, initialize, and synchronize Smart Asset schemas and reposit
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/create-smart-asset [name] [subcommand]
+
+Arguments:
+  [name]                Create a specific Smart Asset schema
+  sync                  Synchronize with master schema definitions
+
+Default (no args): Initialize Smart Asset definitions in repository.
+Prerequisite: Run /harmonize first.
+```
+
+---
+
 # /create-smart-asset
 
 Create, initialize, and synchronize Smart Asset schemas and repository structure.

@@ -4,6 +4,22 @@ description: Launch the todo-task-executor agent to systematically work through 
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/work-tasks
+
+Launches the todo-task-executor agent to autonomously work through
+remaining tasks in docs/ToDos.md using stigmergic coordination.
+
+The agent claims, implements, and completes tasks in priority order.
+For interactive single-task work, use /nextTask + /implement instead.
+```
+
+---
+
 # Work Through Tasks
 
 Launch the todo-task-executor agent to systematically work through remaining tasks using stigmergic coordination.

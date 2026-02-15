@@ -27,6 +27,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Source repo-selection library (optional - graceful if missing)
+if [[ -f "$SCRIPT_DIR/lib/repo-selection.sh" ]]; then
+    source "$SCRIPT_DIR/lib/repo-selection.sh"
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -155,6 +160,14 @@ collect_repo_info() {
 
         local rel_path
         rel_path=$(realpath --relative-to="$start_dir" "$repo_dir" 2>/dev/null || echo "$repo_dir")
+        rel_path="${rel_path#./}"  # Strip ./ prefix (macOS realpath lacks --relative-to)
+
+        # Skip repos not in selection config (if loaded and not --all scope)
+        if type -t is_repo_selected &>/dev/null && [[ -n "${REPO_SELECTION_CONFIG:-}" ]]; then
+            if ! is_repo_selected "$rel_path"; then
+                continue
+            fi
+        fi
 
         local branch
         branch=$(git -C "$repo_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")

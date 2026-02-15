@@ -4,6 +4,25 @@ description: Preview and summarize epochs for high-level review of scope and pro
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/epoch-review [EPOCH-ID] [OPTIONS]
+
+Arguments:
+  [EPOCH-ID]            Show specific epoch (e.g., EPOCH-008)
+
+Options:
+  --list                List all epochs with status summary
+  --no-color            Disable colored output
+
+Default: Shows next pending epoch based on priority ordering.
+```
+
+---
+
 # Epoch Review
 
 Preview and summarize epochs for high-level review. Use this command to quickly understand the scope and status of epochs before diving into implementation.

@@ -4,6 +4,26 @@ description: Launch a coordinated multi-agent Claude Code team with orchestrator
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/agent-team [OPTIONS]
+
+Options:
+  --task "DESCRIPTION"  Task description for the team
+  --workers N           Number of worker agents (default: 2)
+  --orchestrator-model MODEL  Model for orchestrator (opus, sonnet, haiku)
+  --model MODEL         Model for workers (default: sonnet)
+  --dry-run             Preview commands without launching
+  --attach              Attach to existing session
+  --kill                Kill existing session
+  --workspace DIR       Working directory (default: CWD)
+```
+
+---
+
 # Agent Team
 
 Launch a coordinated multi-agent Claude Code team in tmux with automatic orchestration.

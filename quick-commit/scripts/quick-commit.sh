@@ -5,9 +5,12 @@
 # Mode detection (for Claude to call first):
 #   ~/.claude/scripts/quick-commit.sh --detect-mode           # Returns JSON mode decision
 #
-# Single-repo mode (default):
+# Single-repo mode (default when no nested repos):
 #   ~/.claude/scripts/quick-commit.sh "commit message"
 #   ~/.claude/scripts/quick-commit.sh  # auto-generates simple message
+#
+# Single-repo mode (forced, bypasses auto-detection):
+#   ~/.claude/scripts/quick-commit.sh --single-repo "commit message"
 #
 # Multi-repo mode (MULTI_REPO=true):
 #   ~/.claude/scripts/quick-commit.sh --discover              # List repos with changes
@@ -54,6 +57,11 @@ log_error() { echo -e "${RED}✗${NC} $1"; }
 
 # Get the directory where this script lives
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source repo-selection library (optional - graceful if missing)
+if [[ -f "$SCRIPT_DIR/lib/repo-selection.sh" ]]; then
+    source "$SCRIPT_DIR/lib/repo-selection.sh"
+fi
 
 # Clean up dangerous Claude Code allow rules after commit
 # This fixes the permission model mismatch where approving quick-commit.sh
@@ -395,6 +403,11 @@ discover_repos() {
     local start_dir
     start_dir=$(pwd)
 
+    # Load repo selection config if not already loaded (standalone invocation)
+    if [[ -z "${REPO_SELECTION_CONFIG:-}" ]] && type -t load_selection &>/dev/null; then
+        load_selection "$start_dir"
+    fi
+
     echo "{"
     echo '  "mode": "multi-repo",'
     echo '  "start_directory": "'"$start_dir"'",'
@@ -415,6 +428,14 @@ discover_repos() {
         if [ "$file_count" -gt 0 ]; then
             local rel_path
             rel_path=$(realpath --relative-to="$start_dir" "$repo_dir" 2>/dev/null || echo "$repo_dir")
+            rel_path="${rel_path#./}"  # Strip ./ prefix (macOS realpath lacks --relative-to)
+
+            # Skip repos not in selection config (if loaded)
+            if type -t is_repo_selected &>/dev/null && [[ -n "${REPO_SELECTION_CONFIG:-}" ]]; then
+                if ! is_repo_selected "$rel_path"; then
+                    continue
+                fi
+            fi
 
             local branch
             branch=$(git -C "$repo_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
@@ -653,7 +674,10 @@ detect_mode() {
     local nested_count=0
 
     # Check explicit environment variable first
-    if [ "${MULTI_REPO:-false}" = "true" ]; then
+    if [ "${MULTI_REPO:-}" = "false" ]; then
+        mode="single-repo"
+        reason="MULTI_REPO explicitly set to false"
+    elif [ "${MULTI_REPO:-false}" = "true" ]; then
         mode="multi-repo"
         reason="MULTI_REPO environment variable set to true"
     else
@@ -672,7 +696,8 @@ detect_mode() {
     echo '  "reason": "'"$reason"'",'
     echo '  "nested_repo_count": '"$nested_count"','
     echo '  "git_root": "'"$git_root"'",'
-    echo '  "working_directory": "'"$(pwd)"'"'
+    echo '  "working_directory": "'"$(pwd)"'",'
+    echo '  "single_repo_override": "--single-repo flag bypasses auto-detection"'
     echo "}"
 }
 
@@ -684,15 +709,29 @@ main() {
         exit 0
     fi
 
+    # Handle --single-repo flag: force single-repo mode regardless of
+    # nested repositories or MULTI_REPO env var. Useful when you only
+    # want to commit tracked changes in the current git repository.
+    if [ "${1:-}" = "--single-repo" ]; then
+        log_info "Forced single-repo mode (--single-repo)"
+        shift
+        single_repo_commit "$1"
+        return
+    fi
+
     local multi_repo_mode=false
 
-    # Check for explicit multi-repo mode
-    if [ "${MULTI_REPO:-false}" = "true" ]; then
+    # Check for explicit overrides via environment variable
+    if [ "${MULTI_REPO:-}" = "false" ]; then
+        # MULTI_REPO=false explicitly disables multi-repo auto-detection
+        multi_repo_mode=false
+    elif [ "${MULTI_REPO:-false}" = "true" ]; then
         multi_repo_mode=true
     else
         # Auto-detect: Check if there are nested git repositories
         if has_nested_repos; then
             log_info "Auto-detected nested git repositories - using multi-repo mode"
+            log_info "Use --single-repo to commit only in the current repository"
             multi_repo_mode=true
         fi
     fi
@@ -717,11 +756,12 @@ main() {
                 echo "Usage:"
                 echo "  $0 --discover                    # List repos with changes (JSON)"
                 echo "  $0 --execute 'repo:msg' ...      # Execute commits"
+                echo "  $0 --single-repo 'message'       # Force single-repo commit"
                 exit 1
                 ;;
             *)
                 log_error "Unknown option: $1"
-                echo "Use --discover or --execute in multi-repo mode"
+                echo "Use --discover, --execute, or --single-repo in multi-repo workspace"
                 exit 1
                 ;;
         esac

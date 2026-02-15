@@ -4,6 +4,22 @@ description: Launch a tmux-based display for monitoring parallel agent teams wit
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/agent-teams-tmux [OPTIONS]
+
+Options:
+  --agents N            Number of agent panes (default: 2)
+  --layout LAYOUT       Layout: dashboard (default), tiled
+  --attach              Attach to existing session
+  --kill                Kill existing session
+```
+
+---
+
 # Agent Teams tmux Display
 
 Launch a tmux session with a real-time dashboard and agent panes for monitoring multi-agent coding sessions.

@@ -4,6 +4,22 @@ description: Review project task tracking and stigmergic signals to identify and
 license: SSL
 ---
 
+## Quick Help
+
+If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
+
+```
+/nextTask [EPOCH-ID]
+
+Arguments:
+  [EPOCH-ID]            Scope to specific epoch (e.g., EPOCH-008)
+
+Default: Analyzes docs/ToDos.md to find the highest-priority unclaimed task.
+Priority: in_progress > pending, then p0 > p1 > p2 > p3, then epoch number.
+```
+
+---
+
 # Next Task Discovery
 
 Review the project's task tracking and stigmergic signals to identify and explain the next task to work on.
