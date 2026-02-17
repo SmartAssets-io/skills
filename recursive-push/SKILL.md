@@ -14,7 +14,7 @@ If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this syn
 Pushes unpushed commits across all repositories in the workspace.
 Auto-detects single-repo vs multi-repo mode.
 
-Repo selection: Honors .multi-repo-selection.json if present. MULTI_REPO_ALL=true to bypass.
+Repo selection: Honors .multi-repo-selection.jsonc if present. MULTI_REPO_ALL=true to bypass.
 ```
 
 ---
@@ -28,7 +28,7 @@ You are helping the user push git commits across multiple repositories.
 | `~/.claude` | `claude` / `claude-safe` | Restrictive hooks block direct `git push`. Use `agentic-git-commit-push.sh --push-only` script |
 | `~/.claude-agentic` | `claude-agentic` | No restrictive hooks. Can use direct git push OR the script |
 
-**Repo selection**: In multi-repo mode, if a `.multi-repo-selection.json` config exists in the workspace root (created by `/multi-repo-sync --wizard`), operations will be scoped to the selected repos. Set `MULTI_REPO_ALL=true` to bypass.
+**Repo selection**: In multi-repo mode, if a `.multi-repo-selection.jsonc` config exists in the workspace root (created by `/multi-repo-sync --wizard`), operations will be scoped to the selected repos. Set `MULTI_REPO_ALL=true` to bypass.
 
 **Auto-detection for multi-repo**: This command automatically detects the appropriate scope:
 1. If `MULTI_REPO=true` is set, uses multi-repo mode
@@ -421,7 +421,7 @@ Assistant: [pushes all 3 repos]
 **Auto-detected multi-repo mode** (nested repos in gitignored subdirectories):
 ```
 User: /recursive-push
-(from /Users/jeff/src/CurrentProjects which has .git/ but also SA/, FF/, BF/ subdirs with their own .git/)
+(from workspace root which has .git/ but also SA/, FF/, BF/ subdirs with their own .git/)
 Assistant: [checks MULTI_REPO - not set]
           [finds 45 nested git repositories in subdirectories]
           [auto-enables multi-repo mode]

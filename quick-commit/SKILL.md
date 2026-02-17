@@ -20,7 +20,7 @@ Options:
   --discover            Discover repos with changes (multi-repo mode)
   [message]             Commit message (auto-generated if omitted)
 
-Repo selection: Honors .multi-repo-selection.json if present. MULTI_REPO_ALL=true to bypass.
+Repo selection: Honors .multi-repo-selection.jsonc if present. MULTI_REPO_ALL=true to bypass.
 ```
 
 ---
@@ -47,7 +47,7 @@ You are helping the user create git commits (single-repo or multi-repo mode).
 | `~/.claude` | `claude` / `claude-safe` | Restrictive hooks block direct git commands. Use this `/quick-commit` command for commits (requires user permission approval) |
 | `~/.claude-agentic` | `claude-agentic` | No restrictive hooks. Direct git commands allowed, but this command still provides intelligent commit messages |
 
-**Repo selection**: In multi-repo mode, if a `.multi-repo-selection.json` config exists in the workspace root (created by `/multi-repo-sync --wizard`), discovery will only show repos matching the selection. Set `MULTI_REPO_ALL=true` to bypass.
+**Repo selection**: In multi-repo mode, if a `.multi-repo-selection.jsonc` config exists in the workspace root (created by `/multi-repo-sync --wizard`), discovery will only show repos matching the selection. Set `MULTI_REPO_ALL=true` to bypass.
 
 **Auto-detection for multi-repo**: This command uses deterministic mode detection via the `--detect-mode` flag:
 1. Call `quick-commit.sh --detect-mode` first (returns JSON with mode decision)
@@ -417,12 +417,12 @@ The script outputs a summary. Tell user they can push with `/recursive-push`.
 ### Single-repo: Basic commit
 ```
 User: /quick-commit
-Claude: [runs: ~/src/.../quick-commit.sh --detect-mode]
+Claude: [runs: scripts/quick-commit.sh --detect-mode]
         [receives: {"mode": "single-repo", ...}]
         [runs git status --short - sees 2 files modified]
         [runs git diff to see ALL changes]
         [generates message: "refactor(topbar): center BountyForge text"]
-        [runs: ~/src/.../quick-commit.sh "refactor(topbar): center BountyForge text"]
+        [runs: scripts/quick-commit.sh "refactor(topbar): center BountyForge text"]
         [hook prompts: "ONLY ALLOW if YOU typed /quick-commit"]
         [user approves]
         [script commits, shows result]
@@ -434,7 +434,7 @@ User: /quick-commit fix typo in README
 Claude: [runs git status, git diff to analyze changes]
         [uses "fix typo in README" as context hint]
         [generates message: "fix(docs): correct typo in README"]
-        [runs: ~/src/.../quick-commit.sh "fix(docs): correct typo in README"]
+        [runs: scripts/quick-commit.sh "fix(docs): correct typo in README"]
         [hook prompts, user approves]
         [script executes commit]
 ```
@@ -453,7 +453,7 @@ User: [selects "Yes, add all untracked files"]
 Claude: [runs: git add docs/NewFeature.md]
         [runs git diff --cached to see ALL changes including newly staged]
         [generates message for all changes]
-        [runs: ~/src/.../quick-commit.sh "feat(docs): add new feature documentation"]
+        [runs: scripts/quick-commit.sh "feat(docs): add new feature documentation"]
         [script commits all files]
 ```
 
@@ -465,7 +465,7 @@ Claude: [runs git status --short - sees 1 modified, 1 untracked]
 User: [selects "No, commit tracked changes only"]
 Claude: [runs git diff on tracked files only]
         [generates message for tracked changes]
-        [runs: ~/src/.../quick-commit.sh "fix(api): correct endpoint"]
+        [runs: scripts/quick-commit.sh "fix(api): correct endpoint"]
         [script commits tracked files only, warns about untracked]
 ```
 
@@ -476,7 +476,7 @@ Claude: [user requested CWD-only - skip --detect-mode]
         [runs git status --short - sees 3 files modified in root repo]
         [runs git diff to see ALL changes]
         [generates message: "docs: consolidate tracking files"]
-        [runs: ~/src/.../quick-commit.sh --single-repo "docs: consolidate tracking files"]
+        [runs: scripts/quick-commit.sh --single-repo "docs: consolidate tracking files"]
         [hook prompts, user approves]
         [script commits only root repo changes, ignores nested repos]
 ```
@@ -484,12 +484,12 @@ Claude: [user requested CWD-only - skip --detect-mode]
 ### Multi-repo: Basic commit
 ```
 User: /quick-commit
-Claude: [runs: ~/src/.../quick-commit.sh --detect-mode]
+Claude: [runs: scripts/quick-commit.sh --detect-mode]
         [receives: {"mode": "multi-repo", "nested_repo_count": 48, ...}]
-        [runs: MULTI_REPO=true ~/src/.../quick-commit.sh --discover]
+        [runs: MULTI_REPO=true scripts/quick-commit.sh --discover]
         [parses JSON: 2 repos, 4 files]
         [for each repo: git diff, generate message]
-        [runs: MULTI_REPO=true ~/src/.../quick-commit.sh --execute \
+        [runs: MULTI_REPO=true scripts/quick-commit.sh --execute \
                "BountyForge/ToolChain:chore: update config files" \
                "ssl_data_spigot:chore: update config files"]
         [hook prompts, user approves]

@@ -563,7 +563,7 @@ Existing files are never overwritten.
 
 ## Repo Selection
 
-When called via `/multi-repo-sync`, harmonization respects the saved repo selection config (`.multi-repo-selection.json`). Only selected repositories will be harmonized. Use `/multi-repo-sync --all` to bypass the selection for a single run, or `/multi-repo-sync --wizard` to interactively select repos.
+When called via `/multi-repo-sync`, harmonization respects the saved repo selection config (`.multi-repo-selection.jsonc`). Only selected repositories will be harmonized. Use `/multi-repo-sync --all` to bypass the selection for a single run, or `/multi-repo-sync --wizard` to interactively select repos.
 
 ## Workspace-Wide Sync
 
