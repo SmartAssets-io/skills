@@ -2,13 +2,13 @@
 
 **Operational agent skills for AI-assisted development workflows**
 
-Skills with bundled scripts for epoch-based task management, multi-agent coordination, multi-repo git operations, and Smart Asset creation.
+[OpenSkills](https://github.com/numman-ali/openskills)-compatible skill collection with bundled scripts for epoch-based task management, multi-agent coordination, multi-repo git operations, and Smart Asset creation. Works with Claude Code, Cursor, Windsurf, Aider, and any agent that reads `AGENTS.md`.
 
 <!-- badges-start -->
-[![GitLab Pipeline](https://gitlab.com/smart-assets.io/gitlab-profile/badges/master/pipeline.svg)](https://gitlab.com/smart-assets.io/gitlab-profile/-/pipelines)
-[![Skill Scanner](https://img.shields.io/badge/skill--scanner-enabled-brightgreen)](https://gitlab.com/smart-assets.io/gitlab-profile/-/pipelines)
+[![OpenSkills](https://img.shields.io/badge/OpenSkills-compatible-blue)](https://github.com/numman-ali/openskills)
+[![Skills](https://img.shields.io/badge/skills-15-brightgreen)](./)
 [![Changelog](https://img.shields.io/badge/changelog-latest-blue)](https://gitlab.com/smart-assets.io/gitlab-profile/-/blob/master/CHANGELOG.md)
-[![Releases](https://img.shields.io/badge/releases-notes-green)](https://gitlab.com/smart-assets.io/gitlab-profile/-/blob/master/RELEASES.md)
+[![License: SSL](https://img.shields.io/badge/license-SSL%20v0.2-orange)](LICENSE.md)
 <!-- badges-end -->
 
 > **Source:** [GitLab](https://gitlab.com/smart-assets.io/gitlab-profile) | [Changelog](https://gitlab.com/smart-assets.io/gitlab-profile/-/blob/master/CHANGELOG.md) | [Releases](https://gitlab.com/smart-assets.io/gitlab-profile/-/blob/master/RELEASES.md)
@@ -17,10 +17,22 @@ Skills with bundled scripts for epoch-based task management, multi-agent coordin
 
 ## Quick Start
 
+Install globally so skills are available across all projects:
+
 ```bash
+npx openskills install SmartAssets-io/skills --global
+npx openskills sync
+```
+
+Or install into a specific project:
+
+```bash
+cd your-project/
 npx openskills install SmartAssets-io/skills
 npx openskills sync
 ```
+
+After installation, invoke skills with `/skill-name` in Claude Code or `npx openskills read skill-name` for other agents.
 
 ---
 
@@ -48,11 +60,11 @@ npx openskills sync
 
 ## Skill Structure
 
-Each skill follows the OpenSkills format with optional script bundles:
+Each skill follows the [OpenSkills SKILL.md format](https://github.com/numman-ali/openskills) with optional script bundles:
 
 ```
 skill-name/
-  SKILL.md              # Skill definition (frontmatter + instructions)
+  SKILL.md              # Skill definition (YAML frontmatter + instructions)
   scripts/              # Executable scripts (optional)
     main-script.sh
     lib/                # Script libraries
@@ -65,28 +77,43 @@ skill-name/
 
 ## Manual Installation
 
-### For Claude Code
+If you prefer not to use `npx openskills`, you can install manually with git:
+
+### Global (all projects)
+
+```bash
+mkdir -p ~/.claude/skills
+git clone https://github.com/SmartAssets-io/skills.git ~/.claude/skills/smart-assets
+```
+
+### Project-local
 
 ```bash
 mkdir -p .claude/skills
 git clone https://github.com/SmartAssets-io/skills.git .claude/skills/smart-assets
 ```
 
-### For Other Agents
+### For Other Agents (Cursor, Windsurf, Aider)
 
-Copy skill folders to your project and reference in `AGENTS.md`.
+Copy skill folders to your project and run:
+
+```bash
+npx openskills sync
+```
+
+This generates an `AGENTS.md` file that non-Claude agents can read.
 
 ---
 
 ## Source
 
 These skills are maintained in the [Smart Assets GitLab](https://gitlab.com/smart-assets.io/gitlab-profile)
-and synced to GitHub automatically.
+and synced to GitHub automatically. The sync runs nightly via GitLab CI.
 
 ## Related Resources
 
-- [Smart Assets GitLab](https://gitlab.com/smart-assets.io)
-- [OpenSkills CLI](https://github.com/numman-ali/openskills)
+- [OpenSkills CLI](https://github.com/numman-ali/openskills) - Universal skills loader for AI coding agents
+- [Smart Assets GitLab](https://gitlab.com/smart-assets.io) - Source repositories
 
 ---
 

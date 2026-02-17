@@ -2,7 +2,8 @@
 # repo-selection.sh - Shared library for multi-repo selection filtering
 #
 # Provides functions to load and filter repositories based on
-# .multi-repo-selection.json configuration file.
+# .multi-repo-selection.jsonc configuration file (JSONC supports comments).
+# Falls back to .multi-repo-selection.json for backward compatibility.
 #
 # Usage:
 #   source /path/to/lib/repo-selection.sh
@@ -16,7 +17,7 @@ fi
 REPO_SELECTION_LOADED=1
 
 # Global variables
-REPO_SELECTION_CONFIG=""       # Path to .multi-repo-selection.json (set by find/load)
+REPO_SELECTION_CONFIG=""       # Path to .multi-repo-selection.jsonc (set by find/load)
 REPO_SELECTION_MODE=""         # "include" or empty (no config)
 REPO_SELECTION_GROUPS=()       # Group names from config
 REPO_SELECTION_REPOS=()        # Individual repo paths from config
@@ -25,7 +26,8 @@ REPO_SELECTION_TOTAL=0         # Total repos in workspace (set by load_selection
 REPO_SELECTION_SELECTED=0      # Count of selected repos (set by load_selection)
 
 #
-# Find .multi-repo-selection.json by walking up from CWD (or $1)
+# Find .multi-repo-selection.jsonc by walking up from CWD (or $1)
+# Falls back to .multi-repo-selection.json for backward compatibility
 #
 # Arguments:
 #   $1 - Starting directory (optional, defaults to CWD)
@@ -48,6 +50,11 @@ find_selection_config() {
 
     local dir="$search_dir"
     while [[ "$dir" != "/" ]]; do
+        # Prefer .jsonc, fall back to .json
+        if [[ -f "$dir/.multi-repo-selection.jsonc" ]]; then
+            REPO_SELECTION_CONFIG="$dir/.multi-repo-selection.jsonc"
+            return 0
+        fi
         if [[ -f "$dir/.multi-repo-selection.json" ]]; then
             REPO_SELECTION_CONFIG="$dir/.multi-repo-selection.json"
             return 0
@@ -56,12 +63,45 @@ find_selection_config() {
     done
 
     # Check root as well
+    if [[ -f "/.multi-repo-selection.jsonc" ]]; then
+        REPO_SELECTION_CONFIG="/.multi-repo-selection.jsonc"
+        return 0
+    fi
     if [[ -f "/.multi-repo-selection.json" ]]; then
         REPO_SELECTION_CONFIG="/.multi-repo-selection.json"
         return 0
     fi
 
     return 1
+}
+
+#
+# Strip JSONC/JSON5 comments to produce valid JSON for jq
+#
+# Uses Python for reliable multi-line comment handling.
+# Handles: // line comments, /* */ block comments, trailing commas
+# Preserves :// in URLs (e.g., https://)
+#
+# Arguments:
+#   $1 - Path to JSONC file
+#
+# Output:
+#   Valid JSON on stdout
+#
+_strip_jsonc() {
+    local file="$1"
+    if command -v python3 &>/dev/null; then
+        python3 -c "
+import re, sys
+text = sys.stdin.read()
+text = re.sub(r'/\*[\s\S]*?\*/', '', text)
+text = re.sub(r'(?<!:)//.*$', '', text, flags=re.MULTILINE)
+text = re.sub(r',(\s*[}\]])', r'\1', text)
+print(text)" < "$file"
+    else
+        # Fallback: pass through as-is (will fail jq validation if comments present)
+        cat "$file"
+    fi
 }
 
 #
@@ -113,9 +153,13 @@ load_selection() {
         return 0
     fi
 
-    # Validate JSON
-    if ! jq -e '.' "$REPO_SELECTION_CONFIG" >/dev/null 2>&1; then
-        echo "Warning: malformed JSON in $REPO_SELECTION_CONFIG, treating all repos as selected" >&2
+    # Strip JSONC comments before parsing
+    local json_content
+    json_content=$(_strip_jsonc "$REPO_SELECTION_CONFIG")
+
+    # Validate JSON (after comment stripping)
+    if ! echo "$json_content" | jq -e '.' >/dev/null 2>&1; then
+        echo "Warning: malformed config in $REPO_SELECTION_CONFIG, treating all repos as selected" >&2
         REPO_SELECTION_MODE=""
         REPO_SELECTION_CONFIG=""
         _count_workspace_repos "$workspace_root"
@@ -123,29 +167,29 @@ load_selection() {
         return 0
     fi
 
-    # Parse config
-    REPO_SELECTION_MODE=$(jq -r '.mode // ""' "$REPO_SELECTION_CONFIG")
+    # Parse config from stripped JSON
+    REPO_SELECTION_MODE=$(echo "$json_content" | jq -r '.mode // ""')
 
     # Parse groups array
     REPO_SELECTION_GROUPS=()
     local group
     while IFS= read -r group; do
         [[ -n "$group" ]] && REPO_SELECTION_GROUPS+=("$group")
-    done < <(jq -r '.groups[]? // empty' "$REPO_SELECTION_CONFIG" 2>/dev/null)
+    done < <(echo "$json_content" | jq -r '.groups[]? // empty' 2>/dev/null)
 
     # Parse repos array
     REPO_SELECTION_REPOS=()
     local repo
     while IFS= read -r repo; do
         [[ -n "$repo" ]] && REPO_SELECTION_REPOS+=("$repo")
-    done < <(jq -r '.repos[]? // empty' "$REPO_SELECTION_CONFIG" 2>/dev/null)
+    done < <(echo "$json_content" | jq -r '.repos[]? // empty' 2>/dev/null)
 
     # Parse excluded_repos array
     REPO_SELECTION_EXCLUDED=()
     local excluded
     while IFS= read -r excluded; do
         [[ -n "$excluded" ]] && REPO_SELECTION_EXCLUDED+=("$excluded")
-    done < <(jq -r '.excluded_repos[]? // empty' "$REPO_SELECTION_CONFIG" 2>/dev/null)
+    done < <(echo "$json_content" | jq -r '.excluded_repos[]? // empty' 2>/dev/null)
 
     # Count total and selected repos
     _count_workspace_repos "$workspace_root"
@@ -254,11 +298,21 @@ clear_selection() {
         workspace_root="$(cd "$workspace_root" && pwd)"
     fi
 
-    local config_path="$workspace_root/.multi-repo-selection.json"
+    local found=false
 
-    if [[ -f "$config_path" ]]; then
-        rm -f "$config_path"
-        echo "Removed selection config: $config_path"
+    # Remove .jsonc (primary) and .json (legacy) if they exist
+    if [[ -f "$workspace_root/.multi-repo-selection.jsonc" ]]; then
+        rm -f "$workspace_root/.multi-repo-selection.jsonc"
+        echo "Removed selection config: $workspace_root/.multi-repo-selection.jsonc"
+        found=true
+    fi
+    if [[ -f "$workspace_root/.multi-repo-selection.json" ]]; then
+        rm -f "$workspace_root/.multi-repo-selection.json"
+        echo "Removed selection config: $workspace_root/.multi-repo-selection.json"
+        found=true
+    fi
+
+    if [[ "$found" == "true" ]]; then
         REPO_SELECTION_CONFIG=""
         REPO_SELECTION_MODE=""
         REPO_SELECTION_GROUPS=()
@@ -267,7 +321,7 @@ clear_selection() {
         return 0
     fi
 
-    echo "No selection config found at: $config_path"
+    echo "No selection config found at: $workspace_root/.multi-repo-selection.jsonc"
     return 1
 }
 

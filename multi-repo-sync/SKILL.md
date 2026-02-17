@@ -79,13 +79,13 @@ Use `"$PROFILE_DIR/AItools/scripts/..."` for all script paths below.
 
 ## Repo Selection Wizard
 
-The wizard allows interactive selection of which repos to sync, rather than operating on all ~48 repos every time. Selections are persisted to `.multi-repo-selection.json` in the workspace root.
+The wizard allows interactive selection of which repos to sync, rather than operating on all ~48 repos every time. Selections are persisted to `.multi-repo-selection.jsonc` in the workspace root (JSONC format supports comments and annotations).
 
 ### Wizard Flow
 
 **Step 0: Check for existing config**
 
-Before running the wizard, check if `.multi-repo-selection.json` exists in the workspace root:
+Before running the wizard, check if `.multi-repo-selection.jsonc` exists in the workspace root:
 
 ```bash
 "$PROFILE_DIR/AItools/scripts/multi-repo-sync.sh" --wizard
@@ -181,15 +181,21 @@ AskUserQuestion:
 
 **Step 6: Save config and proceed**
 
-Write `.multi-repo-selection.json` to workspace root using the Write tool:
+Write `.multi-repo-selection.jsonc` to workspace root using the Write tool:
 
-```json
+```jsonc
 {
+  // Multi-repo selection config
+  // Controls which repos are included in /multi-repo-sync,
+  // /quick-commit, /recursive-push, and /harmonize
   "version": 1,
   "mode": "include",
   "updated_at": "2026-02-14T10:00:00Z",
+  // Repository groups to include
   "groups": ["BountyForge", "SATCHEL"],
+  // Standalone repos (not in a group)
   "repos": ["SA_build_agentics", "top-level-gitlab-profile"],
+  // Repos to exclude even if their group is included
   "excluded_repos": ["SATCHEL/lightning-rgb-node"]
 }
 ```
@@ -198,7 +204,7 @@ Show summary (e.g., "Selected 42/51 repos") and proceed with sync.
 
 ### Selection Config Format
 
-The `.multi-repo-selection.json` file uses "include" mode resolution:
+The `.multi-repo-selection.jsonc` file uses "include" mode resolution:
 
 1. Start with empty set
 2. Add all repos from listed `groups` (discovered at runtime)
@@ -213,7 +219,7 @@ Three ways to clear or bypass the saved selection:
 
 | Method | Behavior |
 |--------|----------|
-| `/multi-repo-sync --clear` | Deletes `.multi-repo-selection.json` and exits |
+| `/multi-repo-sync --clear` | Deletes `.multi-repo-selection.jsonc` and exits |
 | Wizard Step 0 option 4 | Deletes config, re-runs wizard from Step 1 |
 | `/multi-repo-sync --all` | Ignores config for this run (does not delete it) |
 
@@ -232,7 +238,7 @@ Pass `MULTI_REPO_ALL=true` or `--all` to any command to bypass the selection for
 
 ## What It Does
 
-1. **Checks for saved repo selection** - Loads `.multi-repo-selection.json` if present, or runs wizard if `--wizard` specified.
+1. **Checks for saved repo selection** - Loads `.multi-repo-selection.jsonc` if present, or runs wizard if `--wizard` specified.
 
 2. **Discovers workspace repos** - Scans the workspace (or subtree, depending on `--scope`) to enumerate all git repositories that are candidates for synchronization, filtered by selection config.
 
