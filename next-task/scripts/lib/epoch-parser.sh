@@ -205,6 +205,20 @@ extract_task_refs() {
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$line" =~ ^tasks: ]]; then
+            # Handle inline array format: tasks: [TODO-001, TODO-002, ...]
+            local inline
+            inline=$(echo "$line" | sed -n 's/^tasks:[[:space:]]*\[//p')
+            if [[ -n "$inline" ]]; then
+                # Strip trailing bracket, split on commas, extract IDs
+                inline="${inline%%]*}"
+                local id
+                for id in $(echo "$inline" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'); do
+                    if [[ "$id" =~ ^[A-Z][A-Za-z0-9_-]+ ]]; then
+                        task_ids+="${BASH_REMATCH[0]} "
+                    fi
+                done
+                break
+            fi
             in_tasks=true
             continue
         fi
