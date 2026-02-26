@@ -116,6 +116,7 @@ Files Harmonized:
   - docs/CompletedTasks.md (three-file pattern)
   - signers.jsonc (Smart Asset repos only - publisher key registry)
   - Smart Asset structure (candidate repos - scaffolds docs/SmartAssetSpec/)
+  - pre-push hooks (injects ls-remote race guard if missing)
 
 Examples:
   $(basename "$0")                    # Harmonize all repos
@@ -205,6 +206,7 @@ process_repository() {
     process_signers_jsonc "$repo_path" "$rel_path" repo_created repo_error
     process_smart_asset "$repo_path" "$rel_path" repo_created
     process_task_files "$repo_path" "$rel_path" "$python_cmd" repo_created repo_updated repo_error get_task_files_location
+    process_pre_push_hook "$repo_path" "$rel_path" repo_updated repo_error
 
     # Update summary counters
     SUMMARY[scanned]=$((SUMMARY[scanned] + 1))

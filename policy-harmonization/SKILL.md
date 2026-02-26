@@ -311,6 +311,46 @@ Validation results appear in output:
        [SA OK] Validation passed (3 checks, 0 warnings)
 ```
 
+## Pre-Push Hook Harmonization
+
+Harmonize detects existing pre-push hooks and injects an `ls-remote` race guard if missing. This prevents wasted test runs when two pushes race (the second push sees stale local tracking refs, runs all tests, then gets rejected by the remote).
+
+### How It Works
+
+1. Scans for source-controlled pre-push hooks at: `.husky/pre-push`, `.githooks/pre-push`, `hooks/pre-push`, `scripts/hooks/pre-push`, `AItools/hooks/pre-push`
+2. Only patches hooks that run tests (`pnpm`, `cargo`, `uv run`, `pytest`, etc.)
+3. Skips hooks that already contain an `ls-remote` guard
+4. Injects a POSIX-compatible guard snippet at the appropriate location (after existing guards, before test commands)
+
+### Guard Snippet
+
+The injected guard queries the actual remote state instead of relying on the local tracking ref:
+
+```bash
+_qc_local_head=$(git rev-parse HEAD)
+_qc_remote_head=$(git ls-remote origin "$(git symbolic-ref HEAD)" 2>/dev/null | awk '{print $1}')
+if [ -n "$_qc_remote_head" ] && [ "$_qc_local_head" = "$_qc_remote_head" ]; then
+    echo "Already up to date with remote. Skipping pre-push checks."
+    exit 0
+fi
+```
+
+### Injection Point Priority
+
+The guard is inserted after the most appropriate existing construct:
+
+| Priority | Pattern | Example Repos |
+|----------|---------|---------------|
+| 1 | `# New branches` comment | ToolChain, satchelUX, ZeroAuth_*, ssl_data_spigot |
+| 2 | `fi` closing "branch is ahead" check | SmartAssetPrimitives |
+| 3 | `fi` closing CI environment skip block | rgbL1 |
+| 4 | `set -e` / `set -euo pipefail` | Bash hooks without guards |
+| 5 | Shebang line | Minimal hooks (bfproxy) |
+
+### Interaction with Existing Guards
+
+Most SA hooks already have a `git status | grep "Your branch is ahead"` guard. The `ls-remote` guard complements it by catching the race condition where the local tracking ref is stale but the remote already has the commits. Both guards remain in place.
+
 ## Profile Directory Support
 
 Some repository groups use a dedicated **profile directory** to store Task/Epoch/Story files centrally, rather than duplicating them in each repository. This is common for:
@@ -432,6 +472,12 @@ SA/
 | `[OK]` | File already in sync |
 | `[SKIP]` | File skipped (user choice or no template) |
 | `[ERROR]` | Operation failed |
+
+**Hook Indicators:**
+
+| Indicator | Meaning |
+|-----------|---------|
+| `[PATCH]` | Pre-push hook will be patched with ls-remote race guard |
 
 **Smart Asset Indicators:**
 
