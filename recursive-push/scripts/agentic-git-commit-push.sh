@@ -47,10 +47,10 @@ while IFS= read -r git_dir; do
     cd "$repo_dir"
 
     if [ "$PUSH_ONLY" = true ]; then
-        # Count repos with unpushed commits
+        # Count repos with unpushed commits (skip repos with no upstream - they are local only)
         git fetch 2>/dev/null || true
-        ahead_count=$(git rev-list --count @{upstream}..HEAD 2>/dev/null || echo "0")
-        if [ "$ahead_count" -gt 0 ]; then
+        ahead_count=$(git rev-list --count @{upstream}..HEAD 2>/dev/null || echo "no-upstream")
+        if [ "$ahead_count" != "no-upstream" ] && [ "$ahead_count" -gt 0 ]; then
             total_repos=$((total_repos + 1))
             total_unpushed=$((total_unpushed + ahead_count))
         fi
@@ -151,11 +151,11 @@ while read -r git_dir; do
     current_branch=$(git rev-parse --abbrev-ref HEAD)
 
     if [ "$PUSH_ONLY" = true ]; then
-        # Push-only mode: check for unpushed commits
+        # Push-only mode: check for unpushed commits (skip repos with no upstream - they are local only)
         git fetch 2>/dev/null || true
-        ahead_count=$(git rev-list --count @{upstream}..HEAD 2>/dev/null || echo "0")
-        if [ "$ahead_count" -eq 0 ]; then
-            # No unpushed commits, skip
+        ahead_count=$(git rev-list --count @{upstream}..HEAD 2>/dev/null || echo "no-upstream")
+        if [ "$ahead_count" = "no-upstream" ] || [ "$ahead_count" -eq 0 ]; then
+            # No upstream (local only) or no unpushed commits, skip
             cd - > /dev/null
             continue
         fi
