@@ -325,6 +325,63 @@ clear_selection() {
     return 1
 }
 
+# ---- Repo filtering utilities ----
+
+#
+# Check if a git repo has at least one configured remote
+#
+# Arguments:
+#   $1 - Path to the git repository (absolute or relative)
+#
+# Returns:
+#   0 if at least one remote exists, 1 if no remotes configured
+#
+has_git_remote() {
+    local repo_path="$1"
+    local remotes
+    remotes=$(git -C "$repo_path" remote 2>/dev/null)
+    [[ -n "$remotes" ]]
+}
+
+#
+# Filter a list of repo paths to only leaf repos
+#
+# A "leaf" repo is one whose path is NOT an ancestor of any other repo
+# in the list. This removes parent/group repos that contain child repos.
+#
+# Reads absolute repo paths from stdin (one per line).
+# Outputs only leaf repos to stdout.
+#
+# Example:
+#   Input:            Output:
+#     /ws/BountyForge    (removed - parent of discord-mcp-bot)
+#     /ws/BountyForge/discord-mcp-bot
+#     /ws/SA_build_agentics
+#
+filter_to_leaf_repos() {
+    local -a all_paths=()
+    local line
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        all_paths+=("$line")
+    done
+
+    for candidate in "${all_paths[@]}"; do
+        local is_parent=false
+        for other in "${all_paths[@]}"; do
+            [[ "$other" == "$candidate" ]] && continue
+            # Check if candidate is a strict prefix of other (ancestor directory)
+            if [[ "$other" == "$candidate/"* ]]; then
+                is_parent=true
+                break
+            fi
+        done
+        if [[ "$is_parent" == "false" ]]; then
+            echo "$candidate"
+        fi
+    done
+}
+
 # ---- Internal helpers ----
 
 #

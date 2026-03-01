@@ -144,9 +144,31 @@ collect_repo_info() {
     REPO_WORKTREES=()
     REPO_HAS_CHANGES=()
 
+    # Collect all repo paths first for leaf-repo filtering
+    local -a all_repo_dirs=()
     while IFS= read -r git_dir; do
         local repo_dir
         repo_dir=$(dirname "$git_dir")
+        all_repo_dirs+=("$repo_dir")
+    done < <(find "$start_dir" \( -type d -o -type f \) -name ".git" -not -path "*/node_modules/*" 2>/dev/null | sort)
+
+    # Filter to leaf repos only (skip parent repos that contain child repos)
+    local -a leaf_dirs=()
+    if type -t filter_to_leaf_repos &>/dev/null; then
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && leaf_dirs+=("$line")
+        done < <(printf '%s\n' "${all_repo_dirs[@]}" | filter_to_leaf_repos)
+    else
+        leaf_dirs=("${all_repo_dirs[@]}")
+    fi
+
+    for repo_dir in "${leaf_dirs[@]}"; do
+        # Skip repos without a configured remote
+        if type -t has_git_remote &>/dev/null; then
+            if ! has_git_remote "$repo_dir"; then
+                continue
+            fi
+        fi
 
         local changes=false
         if has_changes "$repo_dir"; then
@@ -182,7 +204,7 @@ collect_repo_info() {
         REPO_BRANCHES+=("$branch")
         REPO_WORKTREES+=("$wt")
         REPO_HAS_CHANGES+=("$changes")
-    done < <(find "$start_dir" \( -type d -o -type f \) -name ".git" -not -path "*/node_modules/*" 2>/dev/null | sort)
+    done
 }
 
 # Determine the most common branch (portable, no declare -A)

@@ -125,6 +125,26 @@ discover_repos() {
         return 1
     fi
 
+    # Filter to leaf repos only (skip parent repos that contain child repos)
+    if type -t filter_to_leaf_repos &>/dev/null; then
+        local leaf_repos=()
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && leaf_repos+=("$line")
+        done < <(printf '%s\n' "${repos[@]}" | filter_to_leaf_repos)
+        repos=("${leaf_repos[@]}")
+    fi
+
+    # Filter out repos without a configured remote
+    if type -t has_git_remote &>/dev/null; then
+        local remote_repos=()
+        for repo in "${repos[@]}"; do
+            if has_git_remote "$repo"; then
+                remote_repos+=("$repo")
+            fi
+        done
+        repos=("${remote_repos[@]}")
+    fi
+
     # Filter through repo selection if config is loaded
     if [[ -n "${REPO_SELECTION_CONFIG:-}" ]] && type -t is_repo_selected &>/dev/null; then
         local filtered=()
@@ -136,11 +156,12 @@ discover_repos() {
                 filtered+=("$repo")
             fi
         done
-        if [[ ${#filtered[@]} -eq 0 ]]; then
-            log_error "No repositories matched the selection config"
-            return 1
-        fi
         repos=("${filtered[@]}")
+    fi
+
+    if [[ ${#repos[@]} -eq 0 ]]; then
+        log_error "No repositories found after filtering (leaf-only, remote-only, selection config)"
+        return 1
     fi
 
     # Output repo paths

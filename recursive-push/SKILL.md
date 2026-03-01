@@ -95,25 +95,42 @@ Follow these steps:
 
 1. **Fetch latest from remote**: Run `git fetch` to ensure we have the latest remote state
 
-2. **Check for unpushed commits**: Run `git status` to check if branch is ahead of remote
+2. **Check for upstream**: If the current branch has no upstream tracking branch, inform the user this is a local-only branch and STOP. Show:
+   ```
+   Branch "dev" has no upstream tracking branch configured (local only).
+   To push, manually set an upstream:
+     git push --set-upstream origin dev
+   ```
 
-3. **Verify commits exist**: If there are no unpushed commits, inform the user and STOP.
+3. **Check for unpushed commits**: Run `git status` to check if branch is ahead of remote
 
-4. **Show what will be pushed**: Run `git log origin/$(git branch --show-current)..HEAD --oneline` to show commits
+4. **Verify commits exist**: If there are no unpushed commits, inform the user and STOP.
 
-5. **Push**: Run `git push` (with automatic upstream if needed)
+5. **Show what will be pushed**: Run `git log origin/$(git branch --show-current)..HEAD --oneline` to show commits
 
-6. **Show result**: Confirm push success and show the remote URL
+6. **Push**: Run `git push`
+
+7. **Show result**: Confirm push success and show the remote URL
 
 **Examples**:
 
 ```
 User: /recursive-push
 Assistant: [runs git fetch]
+          [checks upstream - exists]
           [checks git status - sees 2 commits ahead]
           [shows commits to push]
           [runs git push]
           [shows success]
+```
+
+```
+User: /recursive-push
+Assistant: [runs git fetch]
+          [checks upstream - none configured]
+          Branch "feature-x" has no upstream tracking branch configured (local only).
+          To push, manually set an upstream:
+            git push --set-upstream origin feature-x
 ```
 
 ---
@@ -124,10 +141,11 @@ Assistant: [runs git fetch]
 
 ### Step 1: Discover repositories with unpushed commits
 
-Find all git repositories with commits ahead of remote:
+Find all git repositories with commits ahead of remote. Repos with no upstream tracking branch are treated as **local only** and skipped:
 
 ```bash
 repos_to_push=()
+repos_local_only=()
 declare -A repo_commit_counts
 
 # Find all git repositories
@@ -145,11 +163,11 @@ for git_dir in $(find . -type d -name ".git" -not -path "*/node_modules/*" -not 
     ahead_count=$(git rev-list --count @{upstream}..HEAD 2>/dev/null || echo "no-upstream")
 
     if [ "$ahead_count" = "no-upstream" ]; then
-        # No upstream - check if there are any commits at all
+        # No upstream tracking branch - treat as local only, skip push
         commit_count=$(git rev-list --count HEAD 2>/dev/null || echo "0")
         if [ "$commit_count" -gt 0 ]; then
-            repos_to_push+=("$repo_dir")
-            repo_commit_counts["$repo_dir"]="$commit_count (no upstream)"
+            repos_local_only+=("$repo_dir")
+            repo_commit_counts["$repo_dir"]="$commit_count (local only, no upstream)"
         fi
     elif [ "$ahead_count" -gt 0 ]; then
         repos_to_push+=("$repo_dir")
@@ -160,7 +178,18 @@ for git_dir in $(find . -type d -name ".git" -not -path "*/node_modules/*" -not 
 done
 ```
 
-If no repos have unpushed commits, inform user and STOP.
+If repos were found with no upstream, show them as skipped:
+
+```
+Local-only repositories (no upstream, skipped):
+  - ./repo-name (branch: dev, 5 commits) - no upstream tracking branch configured
+  - ./other-repo (branch: main, 2 commits) - no upstream tracking branch configured
+
+To push these, manually set an upstream:
+  cd <repo> && git push --set-upstream origin <branch>
+```
+
+If no repos have unpushed commits (excluding local-only), inform user and STOP.
 
 ### Step 2: Workspace Consistency Check
 
@@ -243,8 +272,8 @@ Found unpushed commits in N repositories:
      abc1234 feat: add new feature
      def5678 fix: resolve bug
 
-2. relative/path/to/repo2 (Y commits, no upstream)
-   Branch: new-branch (will create origin/new-branch)
+2. relative/path/to/repo2 (Y commits)
+   Branch: dev -> origin/dev
    Commits:
      ghi9012 docs: update readme
 
@@ -275,43 +304,21 @@ for repo in "${repos_to_push[@]}"; do
     echo "Branch: $current_branch"
     echo ""
 
-    # Show commits to push
+    # Show commits to push (all repos here have upstream configured)
     echo "Commits to push:"
-    if git rev-parse @{upstream} >/dev/null 2>&1; then
-        git log @{upstream}..HEAD --oneline
-    else
-        echo "(new branch - all commits)"
-        git log --oneline -5
-        echo "..."
-    fi
+    git log @{upstream}..HEAD --oneline
     echo ""
 
     # Push to remote
-    echo "→ Pushing to remote..."
+    echo "-> Pushing to remote..."
 
     if git push 2>&1 | tee /tmp/push_output.txt; then
-        echo "✓ Pushed successfully"
+        echo "Pushed successfully"
         success_count=$((success_count + 1))
     else
-        # Check if it's due to no upstream
-        if grep -q "no upstream branch\|has no upstream branch" /tmp/push_output.txt; then
-            echo "⚠️  No upstream branch configured for: $current_branch"
-            echo "→ Automatically setting upstream: origin/$current_branch"
-            echo ""
-
-            if git push --set-upstream origin "$current_branch" 2>&1; then
-                echo "✓ Pushed successfully to origin/$current_branch"
-                echo "📝 New remote branch created: origin/$current_branch"
-                success_count=$((success_count + 1))
-            else
-                echo "❌ Push with upstream failed - check permissions or network"
-                failed_count=$((failed_count + 1))
-            fi
-        else
-            echo "❌ Push failed:"
-            cat /tmp/push_output.txt | sed 's/^/   /'
-            failed_count=$((failed_count + 1))
-        fi
+        echo "Push failed:"
+        cat /tmp/push_output.txt | sed 's/^/   /'
+        failed_count=$((failed_count + 1))
     fi
 
     # MR readiness check
@@ -379,7 +386,7 @@ fi
 - **No unpushed commits**: "No unpushed commits found. Nothing to push."
 - **Mode detection**: Auto-detects nested repos; only uses single-repo mode if no nested `.git/` directories found
 - **Branch inconsistency**: Warn user and ask for confirmation before pushing to repos on different branches
-- **No upstream branch**: Automatically sets upstream with `git push --set-upstream origin <branch>`
+- **No upstream branch**: Repos with no upstream tracking branch are treated as local only and skipped. They are reported separately with instructions for manual upstream setup.
 - **Push fails**: Continue with other repos, count as failed, show error
 - **User cancels**: Exit gracefully with no pushes
 
@@ -475,7 +482,7 @@ This command integrates with existing SA multi-repo infrastructure:
 3. **Workspace consistency check**: Uses `check-repo-consistency.sh` to detect branch and worktree mismatches, warns user and asks for confirmation before operating on inconsistent repos
 4. **Fetch before push**: Runs `git fetch` before checking for unpushed commits to ensure accurate remote state
 5. **Preview before push**: Always shows what will be pushed and asks for confirmation (in multi-repo mode)
-6. **Automatic upstream**: Sets upstream on first push to new branches
+6. **Local-only detection**: Repos with no upstream tracking branch are skipped and reported separately, preventing push errors for repos that haven't been configured with a remote tracking branch
 7. **MR readiness**: Checks docs/ToDos.md after push and prompts for MR creation
 8. **Graceful failures**: Continues with other repos if one fails, reports all errors
 
