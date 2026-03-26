@@ -488,7 +488,7 @@ parse_epoch_block() {
 
     # Extract epoch-level fields
     # Support both formats: "id: EPOCH-XXX" (satchelUX) and "epoch_id: EPOCH-XXX" (legacy)
-    local epoch_id title status priority blocked_by
+    local epoch_id title status priority blocked_by user_story
 
     # Try "id:" first (satchelUX format), fall back to "epoch_id:" (legacy)
     epoch_id=$(extract_field "$yaml" "id")
@@ -499,6 +499,7 @@ parse_epoch_block() {
     status=$(extract_field "$yaml" "status")
     priority=$(extract_field "$yaml" "priority")
     blocked_by=$(extract_field "$yaml" "blocked_by" | tr -d '[]')
+    user_story=$(extract_field "$yaml" "user_story")
 
     # Default priority if not specified
     priority="${priority:-p2}"
@@ -533,6 +534,12 @@ parse_epoch_block() {
         json+=",\"blocked_by\":$blocked_arr"
     else
         json+=",\"blocked_by\":[]"
+    fi
+
+    if [[ -n "$user_story" ]] && [[ "$user_story" != "null" ]]; then
+        json+=",\"user_story\":\"$user_story\""
+    else
+        json+=",\"user_story\":\"\""
     fi
 
     json+=",\"tasks\":$tasks_json"
@@ -720,7 +727,7 @@ parse_epochs() {
     local first_epoch=true
 
     for block in "${epoch_blocks[@]}"; do
-        local epoch_id title status priority blocked_by
+        local epoch_id title status priority blocked_by user_story
 
         # Extract epoch fields (support both id: EPOCH- and epoch_id: formats)
         epoch_id=$(extract_field "$block" "id")
@@ -731,6 +738,7 @@ parse_epochs() {
         status=$(extract_field "$block" "status")
         priority=$(extract_field "$block" "priority")
         blocked_by=$(extract_field "$block" "blocked_by" | tr -d '[]')
+        user_story=$(extract_field "$block" "user_story")
         priority="${priority:-p2}"
 
         # Get task references from epoch
@@ -785,6 +793,12 @@ parse_epochs() {
             epoch_json+=",\"blocked_by\":$blocked_arr"
         else
             epoch_json+=",\"blocked_by\":[]"
+        fi
+
+        if [[ -n "$user_story" ]] && [[ "$user_story" != "null" ]]; then
+            epoch_json+=",\"user_story\":\"$user_story\""
+        else
+            epoch_json+=",\"user_story\":\"\""
         fi
 
         epoch_json+=",\"tasks\":$tasks_json"

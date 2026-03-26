@@ -53,7 +53,42 @@ parse_stories() {
         return 1
     fi
 
+    local in_code_fence=false
+
     while IFS= read -r line || [[ -n "$line" ]]; do
+        # Track markdown code fences to skip template examples
+        if [[ "$line" =~ ^\`\`\` ]]; then
+            if [[ "$in_code_fence" == true ]]; then
+                in_code_fence=false
+            else
+                in_code_fence=true
+            fi
+            continue
+        fi
+
+        # Skip lines inside code fences
+        if [[ "$in_code_fence" == true ]]; then
+            continue
+        fi
+
+        # A level-2 header (## ...) ends the current story
+        if [[ "$line" =~ ^##[[:space:]] ]] && [[ ! "$line" =~ ^#### ]]; then
+            if [[ "$in_story" == true ]] && [[ -n "$story_id" ]]; then
+                criteria_json+="]"
+                local story_obj
+                story_obj=$(build_story_json "$story_id" "$story_title" "$story_status" "$story_implemented_in" "$story_persona" "$story_capability" "$story_benefit" "$criteria_json")
+                if [[ "$first_story" == true ]]; then
+                    first_story=false
+                else
+                    stories_json+=","
+                fi
+                stories_json+="$story_obj"
+            fi
+            in_story=false
+            in_criteria=false
+            continue
+        fi
+
         # Detect story header: #### US-XXX: Title
         if [[ "$line" =~ ^####[[:space:]]+US-([0-9]{3}):[[:space:]]*(.*)$ ]]; then
             # Save previous story if exists
