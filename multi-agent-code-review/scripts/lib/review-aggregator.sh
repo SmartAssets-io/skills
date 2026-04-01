@@ -355,10 +355,14 @@ aggregate_reviews() {
     local provider_summary
     provider_summary=$(generate_provider_summary "$reviews_json")
 
-    # Combine all summaries
+    # Combine summaries from non-error providers only
     local combined_summary
     combined_summary=$(echo "$reviews_json" | jq -r '
-        [.[] | select(.summary != null and .summary != "") | .summary] |
+        [.[] | select(
+            .summary != null and .summary != "" and
+            (.verdict | startswith("error_") | not) and
+            .verdict != "abstain"
+        ) | .summary] |
         join("\n\n")
     ')
 
@@ -467,10 +471,16 @@ format_markdown() {
     md+="<details>\n"
     md+="<summary>View individual reviewer assessments</summary>\n\n"
 
-    # Format individual assessments using jq (avoiding subshell issue)
+    # Format individual assessments, separating successful from errored providers
     local assessments_md
     assessments_md=$(echo "$aggregated_json" | jq -r '.providers[] |
-        "#### \(.provider) (\(.model // "unknown"))\n\n\(.summary // "No summary provided")\n"
+        if (.verdict | startswith("error_")) or .verdict == "abstain" then
+            "#### \(.provider) (\(.model // "unknown"))\n\n> **\(.verdict | gsub("_"; " ") | ascii_upcase)**: \(.error // .summary // "No details")\n"
+        elif (.summary // "" | test("^\\s*\\{")) then
+            "#### \(.provider) (\(.model // "unknown"))\n\n```json\n\(.summary)\n```\n"
+        else
+            "#### \(.provider) (\(.model // "unknown"))\n\n\(.summary // "No summary provided")\n"
+        end
     ')
     md+="${assessments_md}\n"
 

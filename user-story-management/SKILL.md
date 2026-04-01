@@ -40,6 +40,10 @@ if [ ! -d "$PROFILE_DIR/AItools/scripts" ]; then
     fi
   done
 fi
+# Fallback: SA_GITLAB_PROFILE env var (set via shell-config.sh)
+if [ ! -d "$PROFILE_DIR/AItools/scripts" ] && [ -n "$SA_GITLAB_PROFILE" ] && [ -d "$SA_GITLAB_PROFILE/AItools/scripts" ]; then
+  PROFILE_DIR="$SA_GITLAB_PROFILE"
+fi
 ```
 
 Use `"$PROFILE_DIR/AItools/scripts/..."` for all script paths below.

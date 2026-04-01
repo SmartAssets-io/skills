@@ -23,7 +23,7 @@ OPENAI_PROVIDER_LOADED=1
 # Configuration
 OPENAI_API_URL="https://api.openai.com/v1/chat/completions"
 OPENAI_MODEL="${OPENAI_MODEL:-gpt-4-turbo}"
-OPENAI_MAX_TOKENS="${OPENAI_MAX_TOKENS:-16384}"
+OPENAI_MAX_TOKENS="${OPENAI_MAX_TOKENS:-4096}"
 
 #
 # Get provider name
