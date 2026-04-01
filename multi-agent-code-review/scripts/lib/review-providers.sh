@@ -543,7 +543,9 @@ execute_with_timeout() {
             [[ -f \"\$f\" ]] && args+=(\"\$(cat \"\$f\")\")
         done
 
-        # Call the function with arguments
+        # Disable errexit before calling provider function so its own
+        # error handling can produce structured error JSON on failure
+        set +e
         $func_name \"\${args[@]}\"
     "
 

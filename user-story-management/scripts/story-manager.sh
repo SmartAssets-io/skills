@@ -12,7 +12,7 @@
 #   story-manager.sh <subcommand> [arguments]
 #
 # Subcommands:
-#   create              Interactive wizard for new story
+#   create              Interactive wizard for new story (or non-interactive with flags)
 #   link US-XXX EPOCH-YYY   Link story to epoch bidirectionally
 #   sync                Scan and report unlinked items
 #   review [US-XXX]     Review story status and progress
@@ -90,7 +90,7 @@ story-manager.sh - Manage user stories via command line
 Usage: $(basename "$0") <subcommand> [arguments] [OPTIONS]
 
 Subcommands:
-  create                     Interactive wizard for new story
+  create                     Interactive wizard (or non-interactive with flags)
   link US-XXX EPOCH-YYY      Link story to epoch bidirectionally
   sync                       Scan and report unlinked items
   review [US-XXX]            Review story status and progress
@@ -99,8 +99,16 @@ Options:
   --no-color                 Disable colored output
   --help, -h                 Show this help message
 
+Create flags (non-interactive mode):
+  --persona TEXT        Who benefits (e.g., "developer using AI assistants")
+  --capability TEXT     What the user wants to do
+  --benefit TEXT        Why they want this
+  --criteria TEXT       Acceptance criterion (repeatable)
+  --title TEXT          Story title (auto-generated from capability if omitted)
+
 Examples:
   $(basename "$0") create                    # Start story creation wizard
+  $(basename "$0") create --persona "developer" --capability "do X" --benefit "get Y" --criteria "C1" --criteria "C2"
   $(basename "$0") link US-010 EPOCH-012     # Link story to epoch
   $(basename "$0") sync                      # Show orphan report
   $(basename "$0") review                    # Review all stories
@@ -197,10 +205,53 @@ get_status_color() {
 }
 
 #
-# Mode: Create new story (interactive wizard)
+# Mode: Create new story (interactive wizard or non-interactive with flags)
 #
 mode_create() {
     load_libraries
+
+    local persona="" capability="" benefit="" title=""
+    local criteria=()
+
+    # Parse create-specific flags from CREATE_ARGS (set by main)
+    local i=0
+    while [[ $i -lt ${#CREATE_ARGS[@]} ]]; do
+        case "${CREATE_ARGS[$i]}" in
+            --persona)
+                i=$((i+1)); persona="${CREATE_ARGS[$i]:-}"
+                ;;
+            --capability)
+                i=$((i+1)); capability="${CREATE_ARGS[$i]:-}"
+                ;;
+            --benefit)
+                i=$((i+1)); benefit="${CREATE_ARGS[$i]:-}"
+                ;;
+            --criteria)
+                i=$((i+1)); criteria+=("${CREATE_ARGS[$i]:-}")
+                ;;
+            --title)
+                i=$((i+1)); title="${CREATE_ARGS[$i]:-}"
+                ;;
+        esac
+        i=$((i+1))
+    done
+
+    # Decide mode: non-interactive if required fields are provided
+    local interactive=true
+    if [[ -n "$persona" ]] && [[ -n "$capability" ]] && [[ -n "$benefit" ]]; then
+        interactive=false
+    elif [[ -n "$persona" ]] || [[ -n "$capability" ]] || [[ -n "$benefit" ]]; then
+        # Partial flags -- check if we can fall back to interactive
+        if [[ ! -t 0 ]]; then
+            echo "Error: --persona, --capability, and --benefit are all required in non-interactive mode" >&2
+            exit $EXIT_INVALID_ARGS
+        fi
+        # Fall through to interactive to fill in missing fields
+    elif [[ ! -t 0 ]]; then
+        echo "Error: No TTY available. Use flags for non-interactive mode:" >&2
+        echo "  create --persona TEXT --capability TEXT --benefit TEXT [--criteria TEXT]... [--title TEXT]" >&2
+        exit $EXIT_INVALID_ARGS
+    fi
 
     echo -e "${COLOR_BLUE}"
     draw_line "top"
@@ -209,60 +260,75 @@ mode_create() {
     echo -e "${COLOR_RESET}"
     echo ""
 
-    # Persona selection
-    echo "Persona (who benefits from this feature):"
-    echo "  1. Developer using AI assistants"
-    echo "  2. Project/Team lead"
-    echo "  3. Workspace maintainer"
-    echo "  4. Open source contributor"
-    echo "  5. Other (enter custom)"
-    echo ""
-    read -rp "> " persona_choice
+    if [[ "$interactive" == true ]]; then
+        # Interactive persona selection
+        if [[ -z "$persona" ]]; then
+            echo "Persona (who benefits from this feature):"
+            echo "  1. Developer using AI assistants"
+            echo "  2. Project/Team lead"
+            echo "  3. Workspace maintainer"
+            echo "  4. Open source contributor"
+            echo "  5. Other (enter custom)"
+            echo ""
+            read -rp "> " persona_choice
 
-    local persona=""
-    case "$persona_choice" in
-        1) persona="developer using AI assistants" ;;
-        2) persona="project/team lead" ;;
-        3) persona="workspace maintainer" ;;
-        4) persona="open source contributor" ;;
-        5)
-            read -rp "Enter custom persona: " persona
-            ;;
-        *)
-            persona="$persona_choice"
-            ;;
-    esac
-
-    echo ""
-    echo "What does the user want to do?"
-    read -rp "> " capability
-
-    echo ""
-    echo "Why do they want this? (benefit)"
-    read -rp "> " benefit
-
-    echo ""
-    echo "Add acceptance criteria (empty line to finish):"
-    local criteria=()
-    while true; do
-        read -rp "> " criterion
-        if [[ -z "$criterion" ]]; then
-            break
+            case "$persona_choice" in
+                1) persona="developer using AI assistants" ;;
+                2) persona="project/team lead" ;;
+                3) persona="workspace maintainer" ;;
+                4) persona="open source contributor" ;;
+                5)
+                    read -rp "Enter custom persona: " persona
+                    ;;
+                *)
+                    persona="$persona_choice"
+                    ;;
+            esac
         fi
-        criteria+=("$criterion")
-    done
 
-    # Generate title suggestion from capability
-    local suggested_title
-    suggested_title=$(echo "$capability" | sed 's/^./\U&/' | cut -c1-50)
+        if [[ -z "$capability" ]]; then
+            echo ""
+            echo "What does the user want to do?"
+            read -rp "> " capability
+        fi
 
-    echo ""
-    echo "Suggested title: \"$suggested_title\""
-    read -rp "Accept? [Y/n] " title_accept
+        if [[ -z "$benefit" ]]; then
+            echo ""
+            echo "Why do they want this? (benefit)"
+            read -rp "> " benefit
+        fi
 
-    local title="$suggested_title"
-    if [[ "$title_accept" =~ ^[Nn] ]]; then
-        read -rp "Enter custom title: " title
+        if [[ ${#criteria[@]} -eq 0 ]]; then
+            echo ""
+            echo "Add acceptance criteria (empty line to finish):"
+            while true; do
+                read -rp "> " criterion
+                if [[ -z "$criterion" ]]; then
+                    break
+                fi
+                criteria+=("$criterion")
+            done
+        fi
+
+        if [[ -z "$title" ]]; then
+            # Generate title suggestion from capability
+            local suggested_title
+            suggested_title=$(echo "$capability" | sed 's/^./\U&/' | cut -c1-50)
+
+            echo ""
+            echo "Suggested title: \"$suggested_title\""
+            read -rp "Accept? [Y/n] " title_accept
+
+            title="$suggested_title"
+            if [[ "$title_accept" =~ ^[Nn] ]]; then
+                read -rp "Enter custom title: " title
+            fi
+        fi
+    fi
+
+    # Auto-generate title from capability if not provided
+    if [[ -z "$title" ]]; then
+        title=$(echo "$capability" | sed 's/^./\U&/' | cut -c1-50)
     fi
 
     # Get next story ID
@@ -556,6 +622,7 @@ main() {
 
     local subcommand=""
     local args=()
+    CREATE_ARGS=()
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -573,8 +640,15 @@ main() {
                 subcommand="$1"
                 shift
                 # Collect remaining arguments for the subcommand
-                while [[ $# -gt 0 ]] && [[ ! "$1" =~ ^-- ]]; do
+                while [[ $# -gt 0 ]]; do
+                    if [[ "$1" == "--no-color" ]]; then
+                        NO_COLOR=1
+                        setup_colors
+                        shift
+                        continue
+                    fi
                     args+=("$1")
+                    CREATE_ARGS+=("$1")
                     shift
                 done
                 ;;
