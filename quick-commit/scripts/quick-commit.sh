@@ -431,8 +431,17 @@ discover_repos() {
             rel_path="${rel_path#./}"  # Strip ./ prefix (macOS realpath lacks --relative-to)
 
             # Skip repos not in selection config (if loaded)
+            # Compute path relative to config root for group matching,
+            # since groups are defined relative to the config file's directory,
+            # not the current working directory.
             if type -t is_repo_selected &>/dev/null && [[ -n "${REPO_SELECTION_CONFIG:-}" ]]; then
-                if ! is_repo_selected "$rel_path"; then
+                local selection_path="$rel_path"
+                if [[ -n "${REPO_SELECTION_ROOT:-}" && "$REPO_SELECTION_ROOT" != "$start_dir" ]]; then
+                    local abs_repo_dir
+                    abs_repo_dir=$(cd "$repo_dir" && pwd)
+                    selection_path="${abs_repo_dir#"$REPO_SELECTION_ROOT"/}"
+                fi
+                if ! is_repo_selected "$selection_path"; then
                     continue
                 fi
             fi
