@@ -299,7 +299,7 @@ while read -r git_dir; do
 
             # Check if docs/ToDos.md exists
             if [ -f "docs/ToDos.md" ]; then
-                mr_result=$("$CHECK_MR_SCRIPT" 2>/dev/null)
+                mr_result=$("$CHECK_MR_SCRIPT" 2>/dev/null) || true
                 mr_ready=$(echo "$mr_result" | jq -r '.ready // false' 2>/dev/null)
 
                 if [ "$mr_ready" = "true" ]; then

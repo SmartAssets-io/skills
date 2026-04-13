@@ -18,6 +18,7 @@ REPO_SELECTION_LOADED=1
 
 # Global variables
 REPO_SELECTION_CONFIG=""       # Path to .multi-repo-selection.jsonc (set by find/load)
+REPO_SELECTION_ROOT=""         # Directory containing the config file (paths are relative to this)
 REPO_SELECTION_MODE=""         # "include" or empty (no config)
 REPO_SELECTION_GROUPS=()       # Group names from config
 REPO_SELECTION_REPOS=()        # Individual repo paths from config
@@ -152,6 +153,10 @@ load_selection() {
         REPO_SELECTION_SELECTED=$REPO_SELECTION_TOTAL
         return 0
     fi
+
+    # Record the directory containing the config file so callers can
+    # compute repo paths relative to it (group matching requires this).
+    REPO_SELECTION_ROOT="$(dirname "$REPO_SELECTION_CONFIG")"
 
     # Strip JSONC comments before parsing
     local json_content
