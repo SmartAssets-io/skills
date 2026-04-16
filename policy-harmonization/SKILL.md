@@ -223,6 +223,7 @@ These files require significant project-specific customization (project context,
 | `docs/UserStories.md` | Template | User stories driving feature development |
 | `docs/Backlog.md` | Template | Three-file pattern - backlog |
 | `docs/CompletedTasks.md` | Template | Three-file pattern - completed |
+| `docs/roadmap.md` | Template | Per-repo release plan (see [roadmap-release-normalization-standard](../../docs/common/roadmap-release-normalization-standard.md)); falls back to `ROADMAP.md` at repo root if `docs/` is not used |
 | `signers.jsonc` | Template | Publisher key registry (Smart Asset repos only) |
 
 These files follow well-defined structural patterns. The harmonize command will:
@@ -671,6 +672,7 @@ Templates are located in `top-level-gitlab-profile/docs/templates/`:
 - `UserStories.md.template` - User stories template
 - `Backlog.md.template` - Backlog template
 - `CompletedTasks.md.template` - Completed tasks template
+- `roadmap.md.template` - Per-repo release plan template (governed by [roadmap-release-normalization-standard](../../docs/common/roadmap-release-normalization-standard.md))
 
 **Smart Asset Templates:**
 - `signers.jsonc.template` - Publisher key registry template
