@@ -114,6 +114,8 @@ Files Harmonized:
   - docs/ToDos.md (task tracking with MR frontmatter)
   - docs/Backlog.md (three-file pattern)
   - docs/CompletedTasks.md (three-file pattern)
+  - docs/roadmap.md (per-repo release plan; see
+    docs/common/roadmap-release-normalization-standard.md)
   - signers.jsonc (Smart Asset repos only - publisher key registry)
   - Smart Asset structure (candidate repos - scaffolds docs/SmartAssetSpec/)
   - pre-push hooks (injects ls-remote race guard if missing)
@@ -206,6 +208,7 @@ process_repository() {
     process_signers_jsonc "$repo_path" "$rel_path" repo_created repo_error
     process_smart_asset "$repo_path" "$rel_path" repo_created
     process_task_files "$repo_path" "$rel_path" "$python_cmd" repo_created repo_updated repo_error get_task_files_location
+    process_roadmap_md "$repo_path" "$rel_path" repo_created repo_error
     process_pre_push_hook "$repo_path" "$rel_path" repo_updated repo_error
 
     # Update summary counters
