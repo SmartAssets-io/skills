@@ -12,7 +12,11 @@
 #   story-manager.sh <subcommand> [arguments]
 #
 # Subcommands:
-#   create              Interactive wizard for new story (or non-interactive with flags)
+#   create              Create a new story. Three input modes:
+#                         1. Interactive wizard (requires TTY) -- no flags
+#                         2. Flag mode -- --persona / --capability / --benefit / --criteria / --title
+#                         3. JSON mode -- --from-json <path> (flags override JSON values)
+#                       Non-TTY contexts (AI agents, CI) MUST use mode 2 or 3.
 #   link US-XXX EPOCH-YYY   Link story to epoch bidirectionally
 #   sync                Scan and report unlinked items
 #   review [US-XXX]     Review story status and progress
@@ -99,16 +103,29 @@ Options:
   --no-color                 Disable colored output
   --help, -h                 Show this help message
 
-Create flags (non-interactive mode):
+Create flags (non-interactive mode -- REQUIRED when no TTY, e.g. AI agents / CI):
   --persona TEXT        Who benefits (e.g., "developer using AI assistants")
   --capability TEXT     What the user wants to do
   --benefit TEXT        Why they want this
   --criteria TEXT       Acceptance criterion (repeatable)
   --title TEXT          Story title (auto-generated from capability if omitted)
+  --from-json PATH      Read persona/capability/benefit/criteria/title from JSON file
+                        (individual flags above override JSON values)
+
+JSON schema for --from-json:
+  {
+    "persona": "string",
+    "capability": "string",
+    "benefit": "string",
+    "criteria": ["string", "string", ...],
+    "title": "string (optional)"
+  }
 
 Examples:
-  $(basename "$0") create                    # Start story creation wizard
+  $(basename "$0") create                    # Start interactive wizard (requires TTY)
   $(basename "$0") create --persona "developer" --capability "do X" --benefit "get Y" --criteria "C1" --criteria "C2"
+  $(basename "$0") create --from-json story.json         # Read all fields from JSON
+  $(basename "$0") create --from-json story.json --title "Override Title"
   $(basename "$0") link US-010 EPOCH-012     # Link story to epoch
   $(basename "$0") sync                      # Show orphan report
   $(basename "$0") review                    # Review all stories
@@ -212,9 +229,44 @@ mode_create() {
 
     local persona="" capability="" benefit="" title=""
     local criteria=()
+    local from_json_path=""
 
-    # Parse create-specific flags from CREATE_ARGS (set by main)
+    # First pass: extract --from-json path so JSON values can be loaded before
+    # per-field flags (which must override JSON)
     local i=0
+    while [[ $i -lt ${#CREATE_ARGS[@]} ]]; do
+        if [[ "${CREATE_ARGS[$i]}" == "--from-json" ]]; then
+            i=$((i+1)); from_json_path="${CREATE_ARGS[$i]:-}"
+        fi
+        i=$((i+1))
+    done
+
+    # Load JSON values if --from-json was provided
+    if [[ -n "$from_json_path" ]]; then
+        if [[ ! -f "$from_json_path" ]]; then
+            echo "Error: --from-json path not found: $from_json_path" >&2
+            exit $EXIT_INVALID_ARGS
+        fi
+        if ! jq empty "$from_json_path" 2>/dev/null; then
+            echo "Error: --from-json file is not valid JSON: $from_json_path" >&2
+            exit $EXIT_INVALID_ARGS
+        fi
+        persona=$(jq -r '.persona // ""' "$from_json_path")
+        capability=$(jq -r '.capability // ""' "$from_json_path")
+        benefit=$(jq -r '.benefit // ""' "$from_json_path")
+        title=$(jq -r '.title // ""' "$from_json_path")
+        # Load criteria array (each element on its own line)
+        local json_criteria
+        json_criteria=$(jq -r '.criteria // [] | .[]' "$from_json_path")
+        if [[ -n "$json_criteria" ]]; then
+            while IFS= read -r line; do
+                [[ -n "$line" ]] && criteria+=("$line")
+            done <<< "$json_criteria"
+        fi
+    fi
+
+    # Second pass: parse per-field flags (override JSON values)
+    i=0
     while [[ $i -lt ${#CREATE_ARGS[@]} ]]; do
         case "${CREATE_ARGS[$i]}" in
             --persona)
@@ -232,6 +284,9 @@ mode_create() {
             --title)
                 i=$((i+1)); title="${CREATE_ARGS[$i]:-}"
                 ;;
+            --from-json)
+                i=$((i+1))  # already handled in first pass
+                ;;
         esac
         i=$((i+1))
     done
@@ -241,15 +296,46 @@ mode_create() {
     if [[ -n "$persona" ]] && [[ -n "$capability" ]] && [[ -n "$benefit" ]]; then
         interactive=false
     elif [[ -n "$persona" ]] || [[ -n "$capability" ]] || [[ -n "$benefit" ]]; then
-        # Partial flags -- check if we can fall back to interactive
+        # Partial fields provided -- check if we can fall back to interactive
         if [[ ! -t 0 ]]; then
-            echo "Error: --persona, --capability, and --benefit are all required in non-interactive mode" >&2
+            echo "Error: Partial input provided but missing one or more required fields." >&2
+            echo "  When no TTY is available, all three of --persona, --capability, --benefit are required." >&2
+            echo "  Received: persona='${persona}' capability='${capability}' benefit='${benefit}'" >&2
+            echo "" >&2
+            echo "  Non-interactive template (fill in <PLACEHOLDERS> and re-run):" >&2
+            echo "    $(basename "$0") create \\" >&2
+            echo "      --persona    \"<who benefits>\" \\" >&2
+            echo "      --capability \"<what they want to do>\" \\" >&2
+            echo "      --benefit    \"<why they want it>\" \\" >&2
+            echo "      --criteria   \"<acceptance criterion 1>\" \\" >&2
+            echo "      --criteria   \"<acceptance criterion 2>\" \\" >&2
+            echo "      [--title     \"<optional explicit title>\"]" >&2
+            echo "" >&2
+            echo "  Or supply a JSON file:" >&2
+            echo "    $(basename "$0") create --from-json <path/to/story.json>" >&2
             exit $EXIT_INVALID_ARGS
         fi
         # Fall through to interactive to fill in missing fields
     elif [[ ! -t 0 ]]; then
-        echo "Error: No TTY available. Use flags for non-interactive mode:" >&2
-        echo "  create --persona TEXT --capability TEXT --benefit TEXT [--criteria TEXT]... [--title TEXT]" >&2
+        echo "Error: No TTY available and no input flags supplied." >&2
+        echo "  The interactive wizard requires a terminal; when running from an AI agent," >&2
+        echo "  CI, or any non-TTY context, use flag mode or --from-json instead." >&2
+        echo "" >&2
+        echo "  Non-interactive template (fill in <PLACEHOLDERS> and re-run):" >&2
+        echo "    $(basename "$0") create \\" >&2
+        echo "      --persona    \"<who benefits>\" \\" >&2
+        echo "      --capability \"<what they want to do>\" \\" >&2
+        echo "      --benefit    \"<why they want it>\" \\" >&2
+        echo "      --criteria   \"<acceptance criterion 1>\" \\" >&2
+        echo "      --criteria   \"<acceptance criterion 2>\" \\" >&2
+        echo "      [--title     \"<optional explicit title>\"]" >&2
+        echo "" >&2
+        echo "  Or supply a JSON file with the same fields:" >&2
+        echo "    $(basename "$0") create --from-json <path/to/story.json>" >&2
+        echo "" >&2
+        echo "  JSON schema:" >&2
+        echo "    { \"persona\": \"...\", \"capability\": \"...\", \"benefit\": \"...\"," >&2
+        echo "      \"criteria\": [\"C1\", \"C2\"], \"title\": \"optional\" }" >&2
         exit $EXIT_INVALID_ARGS
     fi
 

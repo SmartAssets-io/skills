@@ -12,9 +12,16 @@ If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this syn
 /story <subcommand> [arguments]
 
 Subcommands:
-  create "TITLE"        Create a new user story in docs/UserStories.md
+  create [flags]        Create a new user story in docs/UserStories.md
+                        Non-TTY callers (AI agents / CI) MUST use flag or JSON mode:
+                          --persona TEXT --capability TEXT --benefit TEXT
+                          --criteria TEXT (repeatable) [--title TEXT]
+                        or:
+                          --from-json <path>   (JSON file with the same fields)
+                        With no flags on a TTY, launches the interactive wizard.
   link STORY-ID EPOCH-ID  Link a story to an epoch (bi-directional)
   sync                  Synchronize links between UserStories.md and ToDos.md
+  review [STORY-ID]     Review story status and progress
 
 Manages user stories with bi-directional linking to epochs.
 ```
@@ -60,9 +67,59 @@ Run the story-manager script with a subcommand:
 
 ### create
 
-Interactive wizard for creating a new user story:
+Create a new user story. The script supports **three input modes**; pick the one that matches your context:
+
+> **Rule for AI agents, CI, and any non-TTY caller:** always use flag mode (1) or JSON mode (2). The interactive wizard (3) requires a TTY and will exit with a descriptive error otherwise. If you see `Error: No TTY available`, you are in a non-TTY context — switch to mode 1 or 2.
+
+#### Mode 1 — Flag mode (preferred for AI agents / CI)
+
+Every field is passed on the command line. This is the correct mode when this skill is invoked by an AI tool, a CI job, a background process, or any bash session without a controlling terminal.
+
+Required: `--persona`, `--capability`, `--benefit`. `--criteria` is repeatable. `--title` is optional (auto-generated from `--capability` if omitted).
 
 ```bash
+"$PROFILE_DIR/AItools/scripts/story-manager.sh" create \
+    --persona    "developer using AI assistants" \
+    --capability "visualize task dependencies across epochs" \
+    --benefit    "I can identify critical paths and blockers early" \
+    --criteria   "Dependency graph generated from docs/ToDos.md" \
+    --criteria   "Output in Mermaid format, renderable in GitLab" \
+    --title      "Task dependency visualization"
+```
+
+The script auto-assigns the next `US-XXX` ID and writes the story to `docs/UserStories.md`.
+
+#### Mode 2 — JSON mode (`--from-json`)
+
+Put the same fields in a JSON file and pass its path. Useful when fields contain shell-unfriendly characters or when the story is being assembled by another tool.
+
+```bash
+"$PROFILE_DIR/AItools/scripts/story-manager.sh" create --from-json path/to/story.json
+```
+
+JSON schema:
+
+```json
+{
+  "persona": "developer using AI assistants",
+  "capability": "visualize task dependencies across epochs",
+  "benefit": "I can identify critical paths and blockers early",
+  "criteria": [
+    "Dependency graph generated from docs/ToDos.md",
+    "Output in Mermaid format, renderable in GitLab"
+  ],
+  "title": "Task dependency visualization"
+}
+```
+
+Individual `--persona` / `--capability` / `--benefit` / `--criteria` / `--title` flags passed alongside `--from-json` **override** the JSON values (useful for overriding one field without editing the file).
+
+#### Mode 3 — Interactive wizard (humans only)
+
+With no input flags and a TTY attached, the script runs an interactive wizard that prompts for each field. **This mode does not work from Claude Code's Bash tool, Codex, other AI agents, or CI** -- those contexts have no TTY. Use mode 1 or 2 instead.
+
+```bash
+# Human-only; run directly in a terminal
 "$PROFILE_DIR/AItools/scripts/story-manager.sh" create
 ```
 
@@ -73,7 +130,13 @@ The wizard prompts for:
 4. **Acceptance Criteria** - Definition of done (multiple entries)
 5. **Title** - Auto-suggested from capability, can override
 
-Creates a new story with the next available US-XXX ID.
+In Claude Code specifically, a human user can still drive the wizard by prefixing the command with `!` in the prompt so it runs in their own shell with a real TTY:
+
+```
+! "$PROFILE_DIR/AItools/scripts/story-manager.sh" create
+```
+
+The output then lands back in the conversation for the AI to follow up with (e.g., linking the new story to an epoch).
 
 ### link
 
@@ -128,7 +191,52 @@ Displays:
 
 ## Examples
 
-### Create a New Story
+### Create a New Story (Flag mode -- AI / CI)
+
+```bash
+$ "$PROFILE_DIR/AItools/scripts/story-manager.sh" create \
+    --persona    "project/team lead" \
+    --capability "visualize task dependencies" \
+    --benefit    "understand critical paths and identify blockers" \
+    --criteria   "Generate dependency graph from ToDos.md" \
+    --criteria   "Output in Mermaid format"
+
++==============================================================+
+|  Story Created: US-011                                       |
++--------------------------------------------------------------+
+|  Title: Visualize task dependencies                          |
+|  Status: Planned                                             |
+|  Location: docs/UserStories.md                               |
++==============================================================+
+```
+
+### Create a New Story (JSON mode)
+
+```bash
+$ cat > /tmp/story.json <<'EOF'
+{
+  "persona": "project/team lead",
+  "capability": "visualize task dependencies",
+  "benefit": "understand critical paths and identify blockers",
+  "criteria": [
+    "Generate dependency graph from ToDos.md",
+    "Output in Mermaid format"
+  ]
+}
+EOF
+
+$ "$PROFILE_DIR/AItools/scripts/story-manager.sh" create --from-json /tmp/story.json
+
++==============================================================+
+|  Story Created: US-011                                       |
++--------------------------------------------------------------+
+|  Title: Visualize task dependencies                          |
+|  Status: Planned                                             |
+|  Location: docs/UserStories.md                               |
++==============================================================+
+```
+
+### Create a New Story (Interactive wizard -- humans only, requires TTY)
 
 ```bash
 $ "$PROFILE_DIR/AItools/scripts/story-manager.sh" create
