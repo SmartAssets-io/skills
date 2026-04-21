@@ -240,24 +240,28 @@ auto_fix_formatting() {
     echo "=== Auto-fixing formatting ==="
 
     # JavaScript/TypeScript projects: try common fix/format scripts
+    #
+    # We keep auto-fix non-blocking (|| true) so pre-existing lint errors in
+    # other repos don't wedge every commit, but we DO surface the linter's
+    # exit code with a visible WARN banner. Previously the exit code was
+    # silently swallowed, which let real errors scroll past unnoticed.
     if [ -f "$repo_path/package.json" ]; then
         if command -v pnpm &> /dev/null; then
-            # Try lint:fix first (common convention for auto-fix)
+            local linter_cmd=""
             if grep -q '"lint:fix"' "$repo_path/package.json" 2>/dev/null; then
-                log_info "Running pnpm lint:fix..."
-                ( cd "$repo_path" && pnpm lint:fix 2>/dev/null ) || true
-                return 0
+                linter_cmd="lint:fix"
+            elif grep -q '"format"' "$repo_path/package.json" 2>/dev/null; then
+                linter_cmd="format"
+            elif grep -q '"lint"' "$repo_path/package.json" 2>/dev/null; then
+                linter_cmd="lint"
             fi
-            # Try format script (common for prettier/biome format)
-            if grep -q '"format"' "$repo_path/package.json" 2>/dev/null; then
-                log_info "Running pnpm format..."
-                ( cd "$repo_path" && pnpm format 2>/dev/null ) || true
-                return 0
-            fi
-            # Fallback: run lint (check only, may still help with pre-commit hooks)
-            if grep -q '"lint"' "$repo_path/package.json" 2>/dev/null; then
-                log_info "Running pnpm lint..."
-                ( cd "$repo_path" && pnpm lint 2>/dev/null ) || true
+            if [ -n "$linter_cmd" ]; then
+                log_info "Running pnpm $linter_cmd..."
+                local linter_rc=0
+                ( cd "$repo_path" && pnpm "$linter_cmd" ) || linter_rc=$?
+                if [ "$linter_rc" -ne 0 ]; then
+                    log_warning "pnpm $linter_cmd exited with code $linter_rc — lint errors remain after auto-fix (see output above). Commit will proceed; fix manually or run 'pnpm lint' to review."
+                fi
                 return 0
             fi
         fi
