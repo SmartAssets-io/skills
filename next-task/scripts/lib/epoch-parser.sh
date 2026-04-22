@@ -1017,7 +1017,14 @@ get_eligible_epochs() {
     # Add derived status to each epoch and filter
     # Respects both epoch-level blocked_by and task-level blocked_by
     echo "$epochs" | jq --argjson all_tasks "$all_tasks" '
-        # Build lookup of complete epoch IDs
+        # Build lookup of all known epoch IDs (those still present in ToDos.md).
+        # Used to recognize archived blockers: any blocked_by reference NOT in this set
+        # is presumed archived (and therefore complete) rather than blocking. Without
+        # this, archiving a completed upstream epoch via /epoch-hygiene would silently
+        # mark every downstream epoch with blocked_by referencing it as blocked.
+        ([.[] | .epoch_id]) as $known_epoch_ids |
+
+        # Build lookup of complete epoch IDs (still present in ToDos.md, all tasks complete)
         ([.[] | select(
             (.tasks | length) > 0 and
             ([.tasks[] | select(.status == "complete")] | length) == (.tasks | length)
@@ -1030,9 +1037,14 @@ get_eligible_epochs() {
         [.[] |
             . as $epoch |
 
-            # Check if epoch-level blockers are resolved (inline, not def)
+            # An epoch-level blocker is resolved if EITHER:
+            #   (a) it is in $complete_epoch_ids (still present, all tasks complete), OR
+            #   (b) it is NOT in $known_epoch_ids (archived to CompletedTasks.md, presumed complete)
             (((.blocked_by // []) | length == 0) or
-             ((.blocked_by // []) | all(. as $bid | $complete_epoch_ids | index($bid)))) as $epoch_unblocked |
+             ((.blocked_by // []) | all(. as $bid |
+                ($complete_epoch_ids | index($bid)) or
+                (($known_epoch_ids | index($bid)) | not)
+             ))) as $epoch_unblocked |
 
             (.tasks | length) as $total |
             ([.tasks[] | select(.status == "complete")] | length) as $complete |
@@ -1214,16 +1226,25 @@ list_epochs() {
         # Build lookup of complete task IDs
         ($all_tasks | [.[] | select(.status == "complete") | .id]) as $complete_task_ids |
 
-        # Build lookup of complete epoch IDs
+        # Build lookup of all known epoch IDs (still present in ToDos.md). Any blocked_by
+        # reference NOT in this set is presumed archived (and therefore complete).
+        ([.[] | .epoch_id]) as $known_epoch_ids |
+
+        # Build lookup of complete epoch IDs (still present in ToDos.md, all tasks complete)
         ([.[] | select(
             (.tasks | length) > 0 and
             ([.tasks[] | select(.status == "complete")] | length) == (.tasks | length)
         ) | .epoch_id]) as $complete_epoch_ids |
 
         [.[] |
-            # Check if epoch-level blockers are resolved (inline)
+            # An epoch-level blocker is resolved if EITHER:
+            #   (a) it is in $complete_epoch_ids (still present, all tasks complete), OR
+            #   (b) it is NOT in $known_epoch_ids (archived to CompletedTasks.md)
             (((.blocked_by // []) | length == 0) or
-             ((.blocked_by // []) | all(. as $bid | $complete_epoch_ids | index($bid)))) as $epoch_unblocked |
+             ((.blocked_by // []) | all(. as $bid |
+                ($complete_epoch_ids | index($bid)) or
+                (($known_epoch_ids | index($bid)) | not)
+             ))) as $epoch_unblocked |
 
             {
                 epoch_id,

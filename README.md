@@ -49,7 +49,7 @@ After installation, invoke skills with `/skill-name` in Claude Code or `npx open
 | **multi-agent-code-review** | Perform multi-agent code review using multiple LLM providers with consensus-based aggregation posted to GitHub PR or GitLab MR |
 | **multi-repo-sync** | Synchronize conventions and policies across all repositories in the workspace with branch consistency enforcement |
 | **next-task** | Review project task tracking and stigmergic signals to identify and explain the next task to work on |
-| **policy-harmonization** | Synchronize policies, approaches, and conventions across repositories by harmonizing with top-level-gitlab-profile standards |
+| **policy-harmonization** | Synchronize policies, approaches, and conventions across repositories by harmonizing with gitlab-profile standards |
 | **quick-commit** | Quick commit changes (asks about untracked files, auto-generates message or uses provided one) |
 | **recursive-push** | Push unpushed commits across all repositories in the workspace |
 | **user-story-management** | Create, link, and synchronize user stories with epochs providing bi-directional linking between UserStories.md and ToDos.md |

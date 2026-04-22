@@ -32,35 +32,12 @@ Manages user stories with bi-directional linking to epochs.
 
 Create, link, and synchronize user stories with epochs. This command provides command-line management of user stories in `docs/UserStories.md` with bi-directional linking to epochs in `docs/ToDos.md`.
 
-## Path Resolution
-
-Scripts referenced below live in the `top-level-gitlab-profile` repository. When running from another repository, resolve the base path first. **Combine this resolution with each script invocation in a single shell command:**
-
-```bash
-PROFILE_DIR="$(git rev-parse --show-toplevel)"
-if [ ! -d "$PROFILE_DIR/AItools/scripts" ]; then
-  for _p in "$PROFILE_DIR/.." "$PROFILE_DIR/../.."; do
-    _candidate="$_p/top-level-gitlab-profile"
-    if [ -d "$_candidate/AItools/scripts" ]; then
-      PROFILE_DIR="$(cd "$_candidate" && pwd)"
-      break
-    fi
-  done
-fi
-# Fallback: SA_GITLAB_PROFILE env var (set via shell-config.sh)
-if [ ! -d "$PROFILE_DIR/AItools/scripts" ] && [ -n "$SA_GITLAB_PROFILE" ] && [ -d "$SA_GITLAB_PROFILE/AItools/scripts" ]; then
-  PROFILE_DIR="$SA_GITLAB_PROFILE"
-fi
-```
-
-Use `"$PROFILE_DIR/AItools/scripts/..."` for all script paths below.
-
 ## Usage
 
 Run the story-manager script with a subcommand:
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/story-manager.sh" <subcommand> [arguments]
+"scripts/story-manager.sh" <subcommand> [arguments]
 ```
 
 ## Subcommands
@@ -78,7 +55,7 @@ Every field is passed on the command line. This is the correct mode when this sk
 Required: `--persona`, `--capability`, `--benefit`. `--criteria` is repeatable. `--title` is optional (auto-generated from `--capability` if omitted).
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/story-manager.sh" create \
+"scripts/story-manager.sh" create \
     --persona    "developer using AI assistants" \
     --capability "visualize task dependencies across epochs" \
     --benefit    "I can identify critical paths and blockers early" \
@@ -94,7 +71,7 @@ The script auto-assigns the next `US-XXX` ID and writes the story to `docs/UserS
 Put the same fields in a JSON file and pass its path. Useful when fields contain shell-unfriendly characters or when the story is being assembled by another tool.
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/story-manager.sh" create --from-json path/to/story.json
+"scripts/story-manager.sh" create --from-json path/to/story.json
 ```
 
 JSON schema:
@@ -120,7 +97,7 @@ With no input flags and a TTY attached, the script runs an interactive wizard th
 
 ```bash
 # Human-only; run directly in a terminal
-"$PROFILE_DIR/AItools/scripts/story-manager.sh" create
+"scripts/story-manager.sh" create
 ```
 
 The wizard prompts for:
@@ -133,7 +110,7 @@ The wizard prompts for:
 In Claude Code specifically, a human user can still drive the wizard by prefixing the command with `!` in the prompt so it runs in their own shell with a real TTY:
 
 ```
-! "$PROFILE_DIR/AItools/scripts/story-manager.sh" create
+! "scripts/story-manager.sh" create
 ```
 
 The output then lands back in the conversation for the AI to follow up with (e.g., linking the new story to an epoch).
@@ -143,7 +120,7 @@ The output then lands back in the conversation for the AI to follow up with (e.g
 Link a story to an epoch with bi-directional updates:
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/story-manager.sh" link US-010 EPOCH-012
+"scripts/story-manager.sh" link US-010 EPOCH-012
 ```
 
 Updates both files:
@@ -155,7 +132,7 @@ Updates both files:
 Scan and report unlinked stories and epochs:
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/story-manager.sh" sync
+"scripts/story-manager.sh" sync
 ```
 
 Shows:
@@ -170,10 +147,10 @@ Review story status and progress:
 
 ```bash
 # Review all stories
-"$PROFILE_DIR/AItools/scripts/story-manager.sh" review
+"scripts/story-manager.sh" review
 
 # Review specific story
-"$PROFILE_DIR/AItools/scripts/story-manager.sh" review US-010
+"scripts/story-manager.sh" review US-010
 ```
 
 Displays:
@@ -194,7 +171,7 @@ Displays:
 ### Create a New Story (Flag mode -- AI / CI)
 
 ```bash
-$ "$PROFILE_DIR/AItools/scripts/story-manager.sh" create \
+$ "scripts/story-manager.sh" create \
     --persona    "project/team lead" \
     --capability "visualize task dependencies" \
     --benefit    "understand critical paths and identify blockers" \
@@ -225,7 +202,7 @@ $ cat > /tmp/story.json <<'EOF'
 }
 EOF
 
-$ "$PROFILE_DIR/AItools/scripts/story-manager.sh" create --from-json /tmp/story.json
+$ "scripts/story-manager.sh" create --from-json /tmp/story.json
 
 +==============================================================+
 |  Story Created: US-011                                       |
@@ -239,7 +216,7 @@ $ "$PROFILE_DIR/AItools/scripts/story-manager.sh" create --from-json /tmp/story.
 ### Create a New Story (Interactive wizard -- humans only, requires TTY)
 
 ```bash
-$ "$PROFILE_DIR/AItools/scripts/story-manager.sh" create
+$ "scripts/story-manager.sh" create
 
 +==============================================================+
 |  Create New User Story                                       |
@@ -277,7 +254,7 @@ Add acceptance criteria (empty line to finish):
 ### Link Story to Epoch
 
 ```bash
-$ "$PROFILE_DIR/AItools/scripts/story-manager.sh" link US-010 EPOCH-012
+$ "scripts/story-manager.sh" link US-010 EPOCH-012
 
 Linking US-010 to EPOCH-012...
 
@@ -293,7 +270,7 @@ Updated docs/ToDos.md:
 ### Sync Report
 
 ```bash
-$ "$PROFILE_DIR/AItools/scripts/story-manager.sh" sync
+$ "scripts/story-manager.sh" sync
 
 +==============================================================+
 |  Story Sync Report                                           |
@@ -325,7 +302,7 @@ Run '/story link US-XXX EPOCH-YYY' to create links.
 ### Review Story
 
 ```bash
-$ "$PROFILE_DIR/AItools/scripts/story-manager.sh" review US-010
+$ "scripts/story-manager.sh" review US-010
 
 +==============================================================+
 |  US-010: Story Management Slash Commands                     |

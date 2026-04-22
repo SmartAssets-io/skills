@@ -10,7 +10,7 @@
 # 5. Outputs JSON for use by /epoch-hygiene slash command
 #
 # Usage (run from any repo with docs/ToDos.md):
-#   ~/src/CurrentProjects/SA/top-level-gitlab-profile/AItools/scripts/epoch-hygiene.sh [--json] [--check] [--verbose]
+#   $SA_GITLAB_PROFILE/AItools/scripts/epoch-hygiene.sh [--json] [--check] [--verbose]
 #
 # Options:
 #   --json     Output results as JSON (default: human-readable)

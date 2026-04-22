@@ -26,29 +26,6 @@ Options:
 
 Perform a multi-agent code review using multiple LLM providers (Anthropic, OpenAI, Google, xAI) and post the aggregated results to a GitHub PR or GitLab MR.
 
-## Path Resolution
-
-Scripts referenced below live in the `top-level-gitlab-profile` repository. When running from another repository, resolve the base path first. **Combine this resolution with each script invocation in a single shell command:**
-
-```bash
-PROFILE_DIR="$(git rev-parse --show-toplevel)"
-if [ ! -d "$PROFILE_DIR/AItools/scripts" ]; then
-  for _p in "$PROFILE_DIR/.." "$PROFILE_DIR/../.."; do
-    _candidate="$_p/top-level-gitlab-profile"
-    if [ -d "$_candidate/AItools/scripts" ]; then
-      PROFILE_DIR="$(cd "$_candidate" && pwd)"
-      break
-    fi
-  done
-fi
-# Fallback: SA_GITLAB_PROFILE env var (set via shell-config.sh)
-if [ ! -d "$PROFILE_DIR/AItools/scripts" ] && [ -n "$SA_GITLAB_PROFILE" ] && [ -d "$SA_GITLAB_PROFILE/AItools/scripts" ]; then
-  PROFILE_DIR="$SA_GITLAB_PROFILE"
-fi
-```
-
-Use `"$PROFILE_DIR/AItools/scripts/..."` for all script paths below.
-
 ## Prerequisites
 
 ### Required Tools
@@ -81,7 +58,7 @@ At least one LLM provider API key must be set. See [Configuration](#configuratio
 Run the multi-review script to execute parallel code reviews:
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" [OPTIONS] [PR_URL|MR_URL|BRANCH]
+"scripts/multi-review.sh" [OPTIONS] [PR_URL|MR_URL|BRANCH]
 ```
 
 If no target is specified, reviews the PR/MR for the current branch.
@@ -94,16 +71,16 @@ Add a multi-agent review to an existing PR/MR:
 
 ```bash
 # Review current branch's PR/MR
-"$PROFILE_DIR/AItools/scripts/multi-review.sh"
+"scripts/multi-review.sh"
 
 # Review specific PR by number
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" 123
+"scripts/multi-review.sh" 123
 
 # Review by URL
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" https://github.com/owner/repo/pull/123
+"scripts/multi-review.sh" https://github.com/owner/repo/pull/123
 
 # Review by branch name
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" feature/my-branch
+"scripts/multi-review.sh" feature/my-branch
 ```
 
 ### Create Mode
@@ -136,13 +113,13 @@ Options:
 
 ```bash
 # Auto-generate title, detect target branch
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --create --verbose
+"scripts/multi-review.sh" --create --verbose
 
 # With explicit title
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --create --title "feat: add auth system" --verbose
+"scripts/multi-review.sh" --create --title "feat: add auth system" --verbose
 
 # With explicit target branch
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --create --title "feat: add auth" --target-branch develop --verbose
+"scripts/multi-review.sh" --create --title "feat: add auth" --target-branch develop --verbose
 ```
 
 The script will:
@@ -176,7 +153,7 @@ Display the standard Terminal Synopsis Format (see Claude Code Integration below
 By default, uses all providers with valid API keys:
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" 123
+"scripts/multi-review.sh" 123
 ```
 
 ### Specify Providers
@@ -184,7 +161,7 @@ By default, uses all providers with valid API keys:
 Use only specific providers:
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --providers anthropic,openai 123
+"scripts/multi-review.sh" --providers anthropic,openai 123
 ```
 
 ### Available Providers
@@ -214,7 +191,7 @@ Posts a formatted review comment with:
 Output review to stdout without posting:
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --no-post 123
+"scripts/multi-review.sh" --no-post 123
 ```
 
 ### JSON Mode
@@ -222,7 +199,7 @@ Output review to stdout without posting:
 Output raw JSON for programmatic use:
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --json --no-post 123
+"scripts/multi-review.sh" --json --no-post 123
 ```
 
 ## Review Format
@@ -333,50 +310,50 @@ Final verdict: NEEDS_WORK (conservative default)
 
 ```bash
 # Review current branch
-"$PROFILE_DIR/AItools/scripts/multi-review.sh"
+"scripts/multi-review.sh"
 
 # Review specific PR
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" 123
+"scripts/multi-review.sh" 123
 ```
 
 ### Create and Review
 
 ```bash
 # Auto-generate title, detect target branch
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --create --verbose
+"scripts/multi-review.sh" --create --verbose
 
 # With explicit title
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --create --title "feat: add auth system" --verbose
+"scripts/multi-review.sh" --create --title "feat: add auth system" --verbose
 
 # With explicit target branch
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --create --target-branch develop --verbose
+"scripts/multi-review.sh" --create --target-branch develop --verbose
 ```
 
 ### Selective Providers
 
 ```bash
 # Only Claude and ChatGPT
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --providers anthropic,openai 123
+"scripts/multi-review.sh" --providers anthropic,openai 123
 
 # Only local Ollama
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --providers ollama 123
+"scripts/multi-review.sh" --providers ollama 123
 ```
 
 ### Preview Without Posting
 
 ```bash
 # See the review without posting
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --no-post 123
+"scripts/multi-review.sh" --no-post 123
 
 # Get JSON for scripting
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --json --no-post 123 > review.json
+"scripts/multi-review.sh" --json --no-post 123 > review.json
 ```
 
 ### Verbose Mode
 
 ```bash
 # See detailed progress
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --verbose 123
+"scripts/multi-review.sh" --verbose 123
 ```
 
 ## Configuration
@@ -411,7 +388,7 @@ export AWS_PROFILE="my-bedrock-profile"
 export AWS_REGION="us-east-1"  # Optional, defaults to us-east-1
 export BEDROCK_MODEL="us.amazon.nova-pro-v1:0"  # Optional
 
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --providers bedrock 123
+"scripts/multi-review.sh" --providers bedrock 123
 ```
 
 Available Nova models:
@@ -433,7 +410,7 @@ For local model reviews:
 ```bash
 export OLLAMA_HOST="http://localhost:11434"
 export OLLAMA_MODEL="codellama:70b"
-"$PROFILE_DIR/AItools/scripts/multi-review.sh" --providers ollama 123
+"scripts/multi-review.sh" --providers ollama 123
 ```
 
 ### Configuration File
@@ -496,7 +473,7 @@ When invoking this skill, Claude MUST:
 The script emits a compact JSON summary to **stderr** after posting. Capture it:
 
 ```bash
-json_summary=$("$PROFILE_DIR/AItools/scripts/multi-review.sh" --verbose 2>&1 1>/dev/null | tail -1)
+json_summary=$("scripts/multi-review.sh" --verbose 2>&1 1>/dev/null | tail -1)
 ```
 
 Or more practically, capture both stdout and stderr from the script output. The **last line of stderr** is a JSON object containing the full review result with these fields:
