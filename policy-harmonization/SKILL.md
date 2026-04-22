@@ -1,6 +1,6 @@
 ---
 name: policy-harmonization
-description: Synchronize policies, approaches, and conventions across repositories by harmonizing with top-level-gitlab-profile standards
+description: Synchronize policies, approaches, and conventions across repositories by harmonizing with gitlab-profile standards
 license: SSL
 allowed-tools:
   - Bash
@@ -29,32 +29,9 @@ Options:
 
 # Harmonize Policies
 
-Synchronize policies, approaches, and conventions across repositories. This command harmonizes target projects with the patterns and standards defined in `top-level-gitlab-profile`.
+Synchronize policies, approaches, and conventions across repositories. This command harmonizes target projects with the patterns and standards defined in `gitlab-profile`.
 
 **Important:** The script scans **downward from your current working directory**. It does NOT scan parent directories or the entire workspace.
-
-## Path Resolution
-
-Scripts referenced below live in the `top-level-gitlab-profile` repository. When running from another repository, resolve the base path first. **Combine this resolution with each script invocation in a single shell command:**
-
-```bash
-PROFILE_DIR="$(git rev-parse --show-toplevel)"
-if [ ! -d "$PROFILE_DIR/AItools/scripts" ]; then
-  for _p in "$PROFILE_DIR/.." "$PROFILE_DIR/../.."; do
-    _candidate="$_p/top-level-gitlab-profile"
-    if [ -d "$_candidate/AItools/scripts" ]; then
-      PROFILE_DIR="$(cd "$_candidate" && pwd)"
-      break
-    fi
-  done
-fi
-# Fallback: SA_GITLAB_PROFILE env var (set via shell-config.sh)
-if [ ! -d "$PROFILE_DIR/AItools/scripts" ] && [ -n "$SA_GITLAB_PROFILE" ] && [ -d "$SA_GITLAB_PROFILE/AItools/scripts" ]; then
-  PROFILE_DIR="$SA_GITLAB_PROFILE"
-fi
-```
-
-Use `"$PROFILE_DIR/AItools/scripts/..."` for all script paths below.
 
 ## Configuration File Conventions
 
@@ -72,7 +49,7 @@ Run the harmonize-policies script from the directory you want to harmonize:
 
 ```bash
 # From any directory - use the full path to the script
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh" [PATH] [OPTIONS]
+"scripts/harmonize-policies.sh" [PATH] [OPTIONS]
 ```
 
 The script auto-detects its location to find templates, so you can run it from anywhere.
@@ -85,7 +62,7 @@ When run from a project directory without arguments, harmonizes only that reposi
 
 ```bash
 cd /path/to/my-project
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh"
+"scripts/harmonize-policies.sh"
 # Scans only my-project/
 ```
 
@@ -95,11 +72,11 @@ To harmonize multiple repositories, run from a parent directory or specify a PAT
 
 ```bash
 cd /path/to/SATCHEL
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh"
+"scripts/harmonize-policies.sh"
 # Scans all repos under SATCHEL/
 
 # Or specify a relative path from cwd:
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh" ./subdir/
+"scripts/harmonize-policies.sh" ./subdir/
 ```
 
 ### Dry Run Preview
@@ -107,8 +84,8 @@ cd /path/to/SATCHEL
 Preview what would change without modifying any files:
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh" --dry-run
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh" ./subdir/ --dry-run
+"scripts/harmonize-policies.sh" --dry-run
+"scripts/harmonize-policies.sh" ./subdir/ --dry-run
 ```
 
 ## Options
@@ -381,17 +358,17 @@ When harmonizing, the command can detect if a peer-level profile directory exist
 
 ### Detection Script
 
-Use the detection script to check if a repository should use a profile directory. See [Path Resolution](#path-resolution) for resolving `$PROFILE_DIR`:
+Use the detection script to check if a repository should use a profile directory:
 
 ```bash
 # Human-readable output
-"$PROFILE_DIR/AItools/scripts/detect-profile-directory.sh" /path/to/repo
+"scripts/detect-profile-directory.sh" /path/to/repo
 
 # JSON output (for scripting)
-"$PROFILE_DIR/AItools/scripts/detect-profile-directory.sh" --json /path/to/repo
+"scripts/detect-profile-directory.sh" --json /path/to/repo
 
 # Quiet mode (just the path, empty if none)
-"$PROFILE_DIR/AItools/scripts/detect-profile-directory.sh" -q /path/to/repo
+"scripts/detect-profile-directory.sh" -q /path/to/repo
 ```
 
 ### Example Scenarios
@@ -448,7 +425,7 @@ SA/
 
 ```
 +--------------------  Policy Harmonization  --------------------+
-| Source: top-level-gitlab-profile/                              |
+| Source: gitlab-profile/                              |
 | Mode: Interactive                                              |
 +----------------------------------------------------------------+
 
@@ -523,29 +500,29 @@ SA/
 
 ```bash
 # Harmonize current directory
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh"
+"scripts/harmonize-policies.sh"
 
 # Preview changes first
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh" --dry-run
+"scripts/harmonize-policies.sh" --dry-run
 
 # Harmonize all repos under a directory
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh" /path/to/workspace
+"scripts/harmonize-policies.sh" /path/to/workspace
 ```
 
 ### Smart Asset Harmonization
 
 ```bash
 # Harmonize with SA scaffolding prompts (default in interactive mode)
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh"
+"scripts/harmonize-policies.sh"
 
 # Force SA scaffolding without prompts
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh" --scaffold-sa=force
+"scripts/harmonize-policies.sh" --scaffold-sa=force
 
 # Skip SA scaffolding entirely
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh" --scaffold-sa=skip
+"scripts/harmonize-policies.sh" --scaffold-sa=skip
 
 # Always prompt for SA scaffolding (even in YOLO mode)
-"$PROFILE_DIR/AItools/scripts/harmonize-policies.sh" --scaffold-sa=ask
+"scripts/harmonize-policies.sh" --scaffold-sa=ask
 ```
 
 ### Example Output with Smart Assets
@@ -663,7 +640,7 @@ Harmonization ensures these conventions are consistent across all target reposit
 
 ## Source Templates
 
-Templates are located in `top-level-gitlab-profile/docs/templates/`:
+Templates are located in `gitlab-profile/docs/templates/`:
 
 **Standard Templates:**
 - `CLAUDE.md.template` - AI assistant guidance template (includes Implementer Identification, claiming conventions)

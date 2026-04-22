@@ -31,37 +31,13 @@ Begin implementation of the task identified by `/nextTask`. This command assumes
 - User has confirmed they want to proceed with implementation
 - Task goal, acceptance criteria, and approach are understood
 
-## Path Resolution
-
-Scripts referenced below live in the `top-level-gitlab-profile` repository. When running from another repository, resolve the base path first. **Combine this resolution with each script invocation in a single shell command:**
-
-```bash
-PROFILE_DIR="$(git rev-parse --show-toplevel)"
-if [ ! -d "$PROFILE_DIR/AItools/scripts" ]; then
-  for _p in "$PROFILE_DIR/.." "$PROFILE_DIR/../.."; do
-    _candidate="$_p/top-level-gitlab-profile"
-    if [ -d "$_candidate/AItools/scripts" ]; then
-      PROFILE_DIR="$(cd "$_candidate" && pwd)"
-      break
-    fi
-  done
-fi
-# Fallback: SA_GITLAB_PROFILE env var (set via shell-config.sh)
-if [ ! -d "$PROFILE_DIR/AItools/scripts" ] && [ -n "$SA_GITLAB_PROFILE" ] && [ -d "$SA_GITLAB_PROFILE/AItools/scripts" ]; then
-  PROFILE_DIR="$SA_GITLAB_PROFILE"
-fi
-```
-
-Use `"$PROFILE_DIR/AItools/scripts/..."` for all script paths below.
-
 ## Epoch Context
 
 When working on epoch-based tasks:
 
 1. **Get current epoch context**:
    ```bash
-   PROFILE_DIR="$(git rev-parse --show-toplevel)"; if [ ! -d "$PROFILE_DIR/AItools/scripts" ]; then for _p in "$PROFILE_DIR/.." "$PROFILE_DIR/../.."; do _c="$_p/top-level-gitlab-profile"; [ -d "$_c/AItools/scripts" ] && PROFILE_DIR="$(cd "$_c" && pwd)" && break; done; fi; if [ ! -d "$PROFILE_DIR/AItools/scripts" ] && [ -n "$SA_GITLAB_PROFILE" ] && [ -d "$SA_GITLAB_PROFILE/AItools/scripts" ]; then PROFILE_DIR="$SA_GITLAB_PROFILE"; fi
-   "$PROFILE_DIR/AItools/scripts/lib/epoch-parser.sh" next-task docs/ToDos.md
+   "scripts/lib/epoch-parser.sh" next-task docs/ToDos.md
    ```
 
 2. **Track epoch progress**:
@@ -192,8 +168,7 @@ When implementation is complete:
 
 3. **Check epoch completion**:
    ```bash
-   PROFILE_DIR="$(git rev-parse --show-toplevel)"; if [ ! -d "$PROFILE_DIR/AItools/scripts" ]; then for _p in "$PROFILE_DIR/.." "$PROFILE_DIR/../.."; do _c="$_p/top-level-gitlab-profile"; [ -d "$_c/AItools/scripts" ] && PROFILE_DIR="$(cd "$_c" && pwd)" && break; done; fi; if [ ! -d "$PROFILE_DIR/AItools/scripts" ] && [ -n "$SA_GITLAB_PROFILE" ] && [ -d "$SA_GITLAB_PROFILE/AItools/scripts" ]; then PROFILE_DIR="$SA_GITLAB_PROFILE"; fi
-   "$PROFILE_DIR/AItools/scripts/lib/epoch-parser.sh" metrics EPOCH-XXX docs/ToDos.md
+   "scripts/lib/epoch-parser.sh" metrics EPOCH-XXX docs/ToDos.md
    ```
    If all tasks in the epoch are complete, note the epoch completion.
 
@@ -212,8 +187,7 @@ When all tasks in an epoch are complete:
 
 1. **Verify completion**:
    ```bash
-   PROFILE_DIR="$(git rev-parse --show-toplevel)"; if [ ! -d "$PROFILE_DIR/AItools/scripts" ]; then for _p in "$PROFILE_DIR/.." "$PROFILE_DIR/../.."; do _c="$_p/top-level-gitlab-profile"; [ -d "$_c/AItools/scripts" ] && PROFILE_DIR="$(cd "$_c" && pwd)" && break; done; fi; if [ ! -d "$PROFILE_DIR/AItools/scripts" ] && [ -n "$SA_GITLAB_PROFILE" ] && [ -d "$SA_GITLAB_PROFILE/AItools/scripts" ]; then PROFILE_DIR="$SA_GITLAB_PROFILE"; fi
-   "$PROFILE_DIR/AItools/scripts/lib/epoch-parser.sh" metrics EPOCH-XXX docs/ToDos.md
+   "scripts/lib/epoch-parser.sh" metrics EPOCH-XXX docs/ToDos.md
    ```
    Check that `derived_status` is `complete` and `percent_complete` is 100.
 

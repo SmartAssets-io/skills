@@ -55,11 +55,12 @@ find_source_path() {
         return 0
     fi
 
-    # Auto-detect: look for top-level-gitlab-profile
+    # Auto-detect: look for gitlab-profile
     local candidates=(
         "${SCRIPT_DIR:-}/../.."
-        "$(pwd)/top-level-gitlab-profile"
-        "$HOME/src/SA/top-level-gitlab-profile"
+        "${SA_GITLAB_PROFILE:-}"
+        "$(pwd)/gitlab-profile"
+        "$HOME/src/SmartAssets/gitlab-profile"
     )
 
     for candidate in "${candidates[@]}"; do

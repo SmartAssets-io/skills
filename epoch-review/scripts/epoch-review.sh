@@ -215,11 +215,23 @@ format_epoch() {
         percent=0
     fi
 
-    # Derive status if needed
+    # Determine displayed status. Prefer the authored .status field when present
+    # (source of truth — someone set it deliberately, e.g. in_progress when they started
+    # the epoch even though no task is in_progress yet). Fall back to deriving from task
+    # counts only when authored status is missing or "pending" but tasks tell a different
+    # story (e.g. all complete but YAML not yet flipped). This matches the eligibility
+    # logic in lib/epoch-parser.sh get_eligible_epochs which also treats "any complete
+    # tasks but not all" as in_progress.
     local derived_status
     if [[ $complete -eq $total ]] && [[ $total -gt 0 ]]; then
         derived_status="complete"
+    elif [[ "$status" == "in_progress" ]]; then
+        derived_status="in_progress"
+    elif [[ "$status" == "blocked" ]]; then
+        derived_status="blocked"
     elif [[ $in_progress -gt 0 ]]; then
+        derived_status="in_progress"
+    elif [[ $complete -gt 0 ]]; then
         derived_status="in_progress"
     elif [[ $blocked -gt 0 ]]; then
         derived_status="blocked"
@@ -312,13 +324,18 @@ format_epoch_list() {
     draw_line "bottom"
     echo -e "${COLOR_RESET}"
 
-    # Summary line
+    # Summary line. Counts are mutually exclusive and sum to total: an epoch is "complete"
+    # if either its authored .status is "complete" OR all its tasks are complete (covers
+    # the pre-/epoch-hygiene window where the YAML status hasn't yet been flipped). All
+    # other epochs are tallied by their authored .status field. Earlier versions of this
+    # block tested .in_progress / .blocked which are TASK COUNTS, not epoch status, and
+    # produced contradictory totals.
     local total_epochs complete_epochs in_progress_epochs pending_epochs blocked_epochs
     total_epochs=$(echo "$epochs_json" | jq 'length')
-    complete_epochs=$(echo "$epochs_json" | jq '[.[] | select(.status == "complete" or (.complete == .task_count and .task_count > 0))] | length')
-    in_progress_epochs=$(echo "$epochs_json" | jq '[.[] | select(.in_progress > 0)] | length')
-    blocked_epochs=$(echo "$epochs_json" | jq '[.[] | select(.blocked > 0 and .in_progress == 0)] | length')
-    pending_epochs=$(echo "$epochs_json" | jq '[.[] | select(.status == "pending" and .complete == 0 and .in_progress == 0 and .blocked == 0)] | length')
+    complete_epochs=$(echo "$epochs_json" | jq '[.[] | select((.status // "pending") == "complete" or (.complete == .task_count and .task_count > 0))] | length')
+    in_progress_epochs=$(echo "$epochs_json" | jq '[.[] | select((.status // "pending") == "in_progress" and ((.complete < .task_count) or .task_count == 0))] | length')
+    blocked_epochs=$(echo "$epochs_json" | jq '[.[] | select((.status // "pending") == "blocked" and ((.complete < .task_count) or .task_count == 0))] | length')
+    pending_epochs=$(echo "$epochs_json" | jq '[.[] | select((.status // "pending") == "pending" and ((.complete < .task_count) or .task_count == 0))] | length')
 
     echo ""
     echo "Total: ${total_epochs} epochs (${complete_epochs} complete, ${in_progress_epochs} in_progress, ${pending_epochs} pending, ${blocked_epochs} blocked)"

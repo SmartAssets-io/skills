@@ -37,29 +37,6 @@ Workspace-wide synchronization that orchestrates `/harmonize` across all repos w
 
 Unlike `/harmonize` which operates on individual repositories or subtrees, `/multi-repo-sync` adds a workspace-level coordination layer that includes branch consistency enforcement, cross-repo validation, and **interactive repo selection**.
 
-## Path Resolution
-
-Scripts referenced below live in the `top-level-gitlab-profile` repository. When running from another repository, resolve the base path first. **Combine this resolution with each script invocation in a single shell command:**
-
-```bash
-PROFILE_DIR="$(git rev-parse --show-toplevel)"
-if [ ! -d "$PROFILE_DIR/AItools/scripts" ]; then
-  for _p in "$PROFILE_DIR/.." "$PROFILE_DIR/../.."; do
-    _candidate="$_p/top-level-gitlab-profile"
-    if [ -d "$_candidate/AItools/scripts" ]; then
-      PROFILE_DIR="$(cd "$_candidate" && pwd)"
-      break
-    fi
-  done
-fi
-# Fallback: SA_GITLAB_PROFILE env var (set via shell-config.sh)
-if [ ! -d "$PROFILE_DIR/AItools/scripts" ] && [ -n "$SA_GITLAB_PROFILE" ] && [ -d "$SA_GITLAB_PROFILE/AItools/scripts" ]; then
-  PROFILE_DIR="$SA_GITLAB_PROFILE"
-fi
-```
-
-Use `"$PROFILE_DIR/AItools/scripts/..."` for all script paths below.
-
 ## Usage
 
 ```bash
@@ -92,7 +69,7 @@ The wizard allows interactive selection of which repos to sync, rather than oper
 Before running the wizard, check if `.multi-repo-selection.jsonc` exists in the workspace root:
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/multi-repo-sync.sh" --wizard
+"scripts/multi-repo-sync.sh" --wizard
 ```
 
 If the config file exists, use AskUserQuestion:
@@ -117,7 +94,7 @@ Options:
 Run the repo-tree script to get workspace structure:
 
 ```bash
-"$PROFILE_DIR/AItools/scripts/repo-tree.sh" --json --branches --consistency "$WORKSPACE_ROOT"
+"scripts/repo-tree.sh" --json --branches --consistency "$WORKSPACE_ROOT"
 ```
 
 Format the JSON output as a readable markdown table for the user showing groups, repo counts, and branch status.
@@ -198,7 +175,7 @@ Write `.multi-repo-selection.jsonc` to workspace root using the Write tool:
   // Repository groups to include
   "groups": ["BountyForge", "SATCHEL"],
   // Standalone repos (not in a group)
-  "repos": ["SA_build_agentics", "top-level-gitlab-profile"],
+  "repos": ["SA_build_agentics", "gitlab-profile"],
   // Repos to exclude even if their group is included
   "excluded_repos": ["SATCHEL/lightning-rgb-node"]
 }
