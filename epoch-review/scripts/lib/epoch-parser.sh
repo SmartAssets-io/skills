@@ -856,23 +856,62 @@ get_all_tasks() {
 
 #
 # Derive epoch status from its tasks
-# Input: JSON array of tasks, optional JSON array of all tasks (for cross-epoch blocked_by)
+# Input:
+#   $1 tasks_json:           JSON array of this epoch's tasks
+#   $2 all_tasks_json:       Optional JSON array of all tasks across all epochs
+#                            (for cross-epoch blocked_by resolution). Defaults to tasks_json.
+#   $3 all_epochs_json:      Optional JSON array of all epochs in the file. Used to recognize
+#                            archived blockers: any epoch_id in blocked_by NOT present in this
+#                            list is presumed archived (and therefore complete). Without it,
+#                            archiving a completed upstream epoch via /epoch-hygiene would
+#                            silently mark every downstream epoch as blocked. Defaults to "[]".
+#   $4 epoch_blocked_by_json: Optional JSON array of THIS epoch's epoch-level blocked_by
+#                            (e.g. ["EPOCH-009"]). Used together with all_epochs_json to
+#                            derive whether the epoch itself is gated. Defaults to "[]".
 # Output: JSON object with derived_status and metrics
 #
-# A task is considered "blocked" if:
+# Status derivation matches get_eligible_epochs / list_epochs to keep the three call paths
+# consistent. An epoch is "blocked" only if:
+#   (a) its epoch-level blocked_by references unresolved (non-complete, non-archived) epochs, OR
+#   (b) all incomplete tasks within the epoch are themselves blocked.
+#
+# A task is considered effectively blocked if:
 #   - Its explicit status is "blocked", OR
-#   - It has blocked_by entries referencing incomplete tasks
+#   - It has blocked_by entries referencing incomplete tasks (cross-epoch aware).
 #
 derive_epoch_status() {
     local tasks_json="$1"
-    local all_tasks_json="${2:-$tasks_json}"  # Fall back to same list if not provided
+    local all_tasks_json="${2:-$tasks_json}"   # Fall back to same list if not provided
+    local all_epochs_json="${3:-[]}"           # Empty array → no archived-blocker awareness
+    local epoch_blocked_by_json="${4:-[]}"     # Empty array → epoch has no upstream blockers
 
     # Use jq to compute counts with blocked_by awareness
-    # A task is effectively blocked if status=="blocked" OR has unresolved blocked_by
     local metrics_json
-    metrics_json=$(echo "$tasks_json" | jq --argjson all_tasks "$all_tasks_json" '
-        # Build lookup of complete task IDs
+    metrics_json=$(echo "$tasks_json" | jq \
+        --argjson all_tasks "$all_tasks_json" \
+        --argjson all_epochs "$all_epochs_json" \
+        --argjson epoch_blocked_by "$epoch_blocked_by_json" '
+        # Build lookup of complete task IDs (for task-level blocked_by resolution)
         ($all_tasks | [.[] | select(.status == "complete") | .id]) as $complete_ids |
+
+        # Build lookup of all known epoch IDs (those still present in the file).
+        # Any epoch_id in epoch_blocked_by NOT in this set is presumed archived.
+        ($all_epochs | [.[] | .epoch_id]) as $known_epoch_ids |
+
+        # Build lookup of complete epoch IDs (still present in the file, all tasks complete)
+        ($all_epochs | [.[] | select(
+            (.tasks | length) > 0 and
+            ([.tasks[] | select(.status == "complete")] | length) == (.tasks | length)
+        ) | .epoch_id]) as $complete_epoch_ids |
+
+        # An epoch-level blocker is resolved if EITHER:
+        #   (a) it is in $complete_epoch_ids (still present, all tasks complete), OR
+        #   (b) it is NOT in $known_epoch_ids (archived to CompletedTasks.md, presumed complete)
+        ((($epoch_blocked_by | length) == 0) or
+         ($epoch_blocked_by | all(. as $bid |
+            ($complete_epoch_ids | index($bid)) or
+            (($known_epoch_ids | index($bid)) | not)
+         ))) as $epoch_unblocked |
 
         # Store input array for reuse (crucial - prevents context loss)
         . as $tasks |
@@ -893,11 +932,12 @@ derive_epoch_status() {
              ((.blocked_by // []) | all(. as $bid | $complete_ids | index($bid))))
         )] | length) as $pending |
 
-        # Derive status
+        # Derive status — matches get_eligible_epochs semantics
         (if $total == 0 then "pending"
          elif $complete == $total then "complete"
+         elif ($epoch_unblocked | not) then "blocked"
          elif $in_progress > 0 then "in_progress"
-         elif $blocked > 0 then "blocked"
+         elif $blocked > 0 and $blocked == ($total - $complete) then "blocked"
          elif $complete > 0 then "in_progress"
          else "pending" end) as $derived |
 
@@ -936,7 +976,7 @@ get_epoch_metrics() {
         return 1
     fi
 
-    # Get all tasks for cross-epoch blocked_by resolution
+    # Get all epochs and tasks for cross-epoch blocked_by resolution
     local all_epochs
     all_epochs=$(parse_epochs "$todos_file")
     local all_tasks
@@ -945,8 +985,14 @@ get_epoch_metrics() {
     local tasks
     tasks=$(echo "$epoch" | jq '.tasks')
 
+    # Extract this epoch's epoch-level blocked_by so derive_epoch_status can recognize
+    # archived blockers (e.g. blocked_by: [EPOCH-009] when EPOCH-009 has been moved to
+    # CompletedTasks.md) and not falsely report the epoch as blocked.
+    local epoch_blocked_by
+    epoch_blocked_by=$(echo "$epoch" | jq '.blocked_by // []')
+
     local status_info
-    status_info=$(derive_epoch_status "$tasks" "$all_tasks")
+    status_info=$(derive_epoch_status "$tasks" "$all_tasks" "$all_epochs" "$epoch_blocked_by")
 
     # Merge epoch data with derived status
     echo "$epoch" | jq --argjson status "$status_info" '. + {derived: $status}'
