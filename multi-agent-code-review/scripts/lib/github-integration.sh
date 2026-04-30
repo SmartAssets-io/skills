@@ -279,8 +279,21 @@ github_post_review() {
             ;;
     esac
 
-    gh pr review --$review_event --body-file "$temp_file" -- "$pr_number" 2>&1
-    local exit_code=$?
+    # GitHub disallows reviewing your own PR. Fall back to a plain comment
+    # when the PR author matches the authenticated user.
+    local pr_author current_user
+    pr_author=$(gh pr view --json author -q '.author.login' -- "$pr_number" 2>/dev/null)
+    current_user=$(gh api user -q '.login' 2>/dev/null)
+
+    local exit_code
+    if [[ -n "$pr_author" && -n "$current_user" && "$pr_author" == "$current_user" ]]; then
+        echo "Note: self-authored PR (#$pr_number); posting as comment instead of review" >&2
+        gh pr comment --body-file "$temp_file" -- "$pr_number" 2>&1
+        exit_code=$?
+    else
+        gh pr review --$review_event --body-file "$temp_file" -- "$pr_number" 2>&1
+        exit_code=$?
+    fi
 
     rm -f "$temp_file"
 
