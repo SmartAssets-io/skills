@@ -41,6 +41,65 @@ declare -A PRIORITY_ORDER=(
 # Status values
 VALID_STATUSES="pending|in_progress|complete|blocked"
 
+# Priority values (matches PRIORITY_ORDER above; declared here for vocabulary checks)
+VALID_PRIORITIES="p0|p1|p2|p3"
+
+# Strict-mode default. When enabled, parse_single_task / parse_epoch_block /
+# parse_epochs hard-fail on non-canonical status or priority values (e.g.
+# legacy "done" / "active" / "planned" / "completed") instead of silently
+# letting them flow through and being treated as pending downstream.
+#
+# Migration escape hatch: set BF_TODO_PARSER_STRICT=0 to revert to permissive
+# parsing while a workspace is being normalized. Validators (validate_epochs /
+# validate_strict) override this internally so they can still see drift.
+BF_TODO_PARSER_STRICT="${BF_TODO_PARSER_STRICT:-1}"
+
+# Strict-mode propagation marker. parse_single_task is normally called via
+# command substitution ($(...)), so a plain `exit 1` from inside only kills
+# the subshell — the CLI dispatch above keeps running and exits 0. The
+# subshell touches this marker on strict-fail so the top-level CLI block can
+# see it post-dispatch and exit 1. Tied to $$ so concurrent invocations don't
+# collide.
+EPOCH_PARSER_STRICT_MARKER="${TMPDIR:-/tmp}/.epoch-parser-strict-$$"
+
+#
+# Strict vocabulary check.
+# Exits the parser with code 1 when a non-canonical value is seen and strict
+# mode is on. Empty values are intentionally allowed here — defaulting via
+# ${status:-pending} / ${priority:-p2} handles missing fields; this only bites
+# unknown values that would otherwise pass through unrecognized.
+#
+# Args:
+#   $1 kind  - "status" or "priority"
+#   $2 value - raw value extracted from YAML
+#   $3 where - human-readable location (e.g. "task TODO-001" or "epoch EPOCH-001")
+#
+_strict_check_value() {
+    local kind="$1"
+    local value="$2"
+    local where="$3"
+
+    [[ "${BF_TODO_PARSER_STRICT:-1}" == "1" ]] || return 0
+    [[ -n "$value" ]] || return 0
+
+    local valid_pattern valid_list
+    case "$kind" in
+        status)   valid_pattern="^($VALID_STATUSES)$"   ; valid_list="$VALID_STATUSES" ;;
+        priority) valid_pattern="^($VALID_PRIORITIES)$" ; valid_list="$VALID_PRIORITIES" ;;
+        *) return 0 ;;
+    esac
+
+    if [[ ! "$value" =~ $valid_pattern ]]; then
+        {
+            echo "epoch-parser: strict mode: invalid $kind \"$value\" on $where"
+            echo "  valid: ${valid_list//|/, }"
+            echo "  set BF_TODO_PARSER_STRICT=0 to bypass during migration"
+        } >&2
+        : > "$EPOCH_PARSER_STRICT_MARKER" 2>/dev/null || true
+        exit 1
+    fi
+}
+
 #
 # Extract all YAML fenced code blocks from a markdown file
 # Output: YAML blocks separated by ---BLOCK_END--- markers
@@ -434,6 +493,9 @@ parse_single_task() {
         return
     fi
 
+    # Strict vocabulary check (bypassable with BF_TODO_PARSER_STRICT=0)
+    _strict_check_value status "$status" "task $id"
+
     # Build JSON - escape special characters
     local json="{"
     json+="\"id\":\"$(echo "$id" | sed 's/"/\\"/g')\""
@@ -500,6 +562,10 @@ parse_epoch_block() {
     priority=$(extract_field "$yaml" "priority")
     blocked_by=$(extract_field "$yaml" "blocked_by" | tr -d '[]')
     user_story=$(extract_field "$yaml" "user_story")
+
+    # Strict vocabulary check on raw values, before defaulting hides them
+    _strict_check_value status "$status" "epoch ${epoch_id:-(no id)}"
+    _strict_check_value priority "$priority" "epoch ${epoch_id:-(no id)}"
 
     # Default priority if not specified
     priority="${priority:-p2}"
@@ -739,6 +805,11 @@ parse_epochs() {
         priority=$(extract_field "$block" "priority")
         blocked_by=$(extract_field "$block" "blocked_by" | tr -d '[]')
         user_story=$(extract_field "$block" "user_story")
+
+        # Strict vocabulary check on raw values, before defaulting hides them
+        _strict_check_value status "$status" "epoch ${epoch_id:-(no id)}"
+        _strict_check_value priority "$priority" "epoch ${epoch_id:-(no id)}"
+
         priority="${priority:-p2}"
 
         # Get task references from epoch
@@ -1331,26 +1402,45 @@ list_epochs() {
 validate_epochs() {
     local todos_file="${1:-$DEFAULT_TODOS_FILE}"
 
+    # Disable strict parsing here so we can *detect* drift rather than abort
+    # on it. The validator is the path that reports drift; if the parser
+    # bailed out first, we'd have nothing to report.
     local epochs
-    epochs=$(parse_epochs "$todos_file")
+    epochs=$(BF_TODO_PARSER_STRICT=0 parse_epochs "$todos_file")
 
     # Validation checks
     local warnings="[]"
     local errors="[]"
 
-    # Check each epoch
+    # Check each epoch.
+    #
+    # Warning shape: {type, scope, id, value} for invalid_status/invalid_priority;
+    # legacy keys (task_id, status, epoch_id, index) preserved on relevant types
+    # so existing consumers don't break.
     warnings=$(echo "$epochs" | jq '
         [
-            .[] |
-            # Check for missing task IDs
+            .[] | . as $epoch |
+
+            # Missing task IDs
             (.tasks | to_entries | .[] | select(.value.id == null or .value.id == "") |
-                {type: "missing_task_id", epoch_id: .value.epoch_id, index: .key}) // empty,
+                {type: "missing_task_id", epoch_id: $epoch.epoch_id, index: .key}) // empty,
 
-            # Check for invalid status values
+            # Invalid task status (e.g. legacy "done" / "active" / "completed" / "planned")
             (.tasks[] | select(.status | test("^(pending|in_progress|complete|blocked)$") | not) |
-                {type: "invalid_status", task_id: .id, status: .status}) // empty,
+                {type: "invalid_status", scope: "task", id: .id, value: .status,
+                 task_id: .id, status: .status, epoch_id: $epoch.epoch_id}) // empty,
 
-            # Check for empty epochs
+            # Invalid epoch status
+            (select(.status | test("^(pending|in_progress|complete|blocked)$") | not) |
+                {type: "invalid_status", scope: "epoch", id: .epoch_id, value: .status,
+                 epoch_id: .epoch_id, status: .status}) // empty,
+
+            # Invalid epoch priority (must be p0|p1|p2|p3)
+            (select(.priority | test("^(p0|p1|p2|p3)$") | not) |
+                {type: "invalid_priority", scope: "epoch", id: .epoch_id, value: .priority,
+                 epoch_id: .epoch_id, priority: .priority}) // empty,
+
+            # Empty epochs
             (select(.tasks | length == 0) |
                 {type: "empty_epoch", epoch_id: .epoch_id}) // empty
         ]
@@ -1372,10 +1462,66 @@ validate_epochs() {
         }'
 }
 
+#
+# Strict validation: same checks as validate_epochs, but exit nonzero with a
+# human-readable report when any drift is found. Pre-commit hooks and the
+# upcoming bountyforge-lint StatusVocabularyChecker call this path so legacy
+# values (done/active/planned/completed, etc.) hard-fail instead of silently
+# being treated as pending.
+#
+# Output: human-readable drift report on stderr.
+# Returns: 0 on clean, 1 on drift, 2 on internal errors.
+#
+validate_strict() {
+    local todos_file="${1:-$DEFAULT_TODOS_FILE}"
+
+    if [[ ! -f "$todos_file" ]]; then
+        echo "epoch-parser: file not found: $todos_file" >&2
+        return 2
+    fi
+
+    local result
+    result=$(validate_epochs "$todos_file") || return 2
+
+    local warning_count
+    warning_count=$(echo "$result" | jq '.warnings | length')
+
+    if [[ "$warning_count" -eq 0 ]]; then
+        return 0
+    fi
+
+    {
+        echo "epoch-parser: $todos_file has $warning_count drift issue(s):"
+        echo "$result" | jq -r '.warnings[] |
+            if .type == "invalid_status" then
+                "  invalid status \"\(.value)\" on \(.scope) \(.id)"
+            elif .type == "invalid_priority" then
+                "  invalid priority \"\(.value)\" on \(.scope) \(.id)"
+            elif .type == "missing_task_id" then
+                "  missing task id in epoch \(.epoch_id) (index \(.index))"
+            elif .type == "empty_epoch" then
+                "  empty epoch \(.epoch_id)"
+            else
+                "  \(.type): \(. | tostring)"
+            end'
+        echo ""
+        echo "Canonical vocabulary:"
+        echo "  status:   pending | in_progress | complete | blocked"
+        echo "  priority: p0 | p1 | p2 | p3"
+    } >&2
+
+    return 1
+}
+
 # If script is run directly (not sourced), provide CLI interface
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     # CLI mode
     COMMAND="${1:-help}"
+
+    # Surface strict-mode failures from subshell parsers as a non-zero CLI exit.
+    # Without this, _strict_check_value's `exit 1` only kills the $(...) subshell
+    # and the CLI returns 0 with corrupted JSON.
+    trap 'rc=$?; if [[ -f "$EPOCH_PARSER_STRICT_MARKER" ]]; then rm -f "$EPOCH_PARSER_STRICT_MARKER"; exit 1; fi; exit $rc' EXIT
 
     case "$COMMAND" in
         parse|epochs)
@@ -1407,6 +1553,14 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         validate)
             validate_epochs "${2:-$DEFAULT_TODOS_FILE}"
             ;;
+        validate-strict)
+            if validate_strict "${2:-$DEFAULT_TODOS_FILE}"; then
+                echo "epoch-parser: ${2:-$DEFAULT_TODOS_FILE} OK"
+                exit 0
+            else
+                exit 1
+            fi
+            ;;
         help|--help|-h)
             cat <<EOF
 epoch-parser.sh - Parse epoch/task YAML from docs/ToDos.md
@@ -1420,8 +1574,15 @@ Commands:
   next-task [file] [agent]  Get next eligible task to work on
   list [file]               List all epochs with summary
   all-tasks [file]          Get all tasks (flattened across epochs)
-  validate [file]           Validate epoch/task structure
+  validate [file]           Validate epoch/task structure (returns JSON, exit 0)
+  validate-strict [file]    Validate vocabulary; exit 1 on drift (pre-commit gate)
   help                      Show this help message
+
+Environment:
+  BF_TODO_PARSER_STRICT     1 (default) hard-fails on non-canonical status or
+                            priority values during parsing. Set to 0 as a
+                            migration escape hatch while normalizing legacy
+                            values (done/active/planned/completed/etc.).
 
 Default file: docs/ToDos.md
 
