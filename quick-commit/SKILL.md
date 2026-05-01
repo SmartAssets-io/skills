@@ -215,13 +215,15 @@ The `--discover` mode also reports `detached_head: true/false` per repository in
 
 ## Pre-commit Hook Handling
 
-The bash script automatically handles pre-commit hook failures:
+The bash script does **not** auto-fix formatting or lint issues. If the pre-commit hook fails, the script retries the commit once and then surfaces the failure.
 
-1. **Auto-fix formatting BEFORE commit**: Detects and runs biome/prettier/eslint
-2. **Retry on failure**: If pre-commit hook fails, auto-fixes and retries once
-3. **Supported formatters**: biome (preferred), prettier, eslint
+**Why no auto-fix:** Running fixers (biome/prettier/eslint, ruff/black, `cargo clippy --fix`, `cargo fix`, etc.) between staging and `write-tree` mutates tracked files mid-commit and desyncs the index / cache-tree. This produced corrupted commits, so the auto-fix path was removed entirely.
 
-This ensures commits succeed without manual intervention.
+**Anti-pattern — do NOT do this:**
+- Do not invoke `cargo clippy --fix` (even with `--allow-dirty --allow-staged`), `cargo fix`, or any in-place rewriter as part of the commit pipeline. `--allow-staged` rewrites the working tree without re-staging, so the indexed blobs no longer match the files on disk and the cache-tree becomes invalid.
+- The same hazard applies to `prettier --write`, `eslint --fix`, `ruff check --fix`, `ruff format`, `black .`, and any other formatter that edits tracked files.
+
+**If the pre-commit hook fails:** Claude (the caller) is responsible for fixing it — run the appropriate formatter, re-stage, then re-invoke `/quick-commit`. The script will not paper over hook failures.
 
 ---
 
@@ -405,8 +407,8 @@ The script outputs a summary. Tell user they can push with `/recursive-push`.
 **Script's responsibility:**
 1. **Never runs `git add`**: Uses `git commit -a` for tracked/staged files only
 2. **Untracked file warnings**: Detects and warns about any remaining untracked files
-3. **Auto-fix formatting**: Runs biome/prettier/eslint before commit
-4. **Pre-commit hook retry**: Retries once after auto-fix if hook fails
+3. **Never auto-fixes lint/format**: Mutating tracked files mid-commit corrupts the index/cache-tree (see Pre-commit Hook Handling). Fixing hook failures is the caller's responsibility.
+4. **Pre-commit hook retry**: Retries the commit once on failure (no auto-fix between attempts)
 5. **Threshold-based approval**: >5 files or >2 repos requires user confirmation
 6. **Merge conflict safety**: Avoids `git add -A` which could commit conflict markers
 

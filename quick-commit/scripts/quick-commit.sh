@@ -19,9 +19,14 @@
 # Safety features:
 # - NEVER runs git add - only commits tracked modified/deleted files
 # - Warns about untracked files
-# - Auto-fixes formatting before commit (biome/prettier/eslint)
-# - Retries once if pre-commit hook fails after auto-fix
 # - Threshold-based approval for multi-repo (>5 files or >2 repos)
+#
+# Note: this script does NOT auto-fix formatting/lint issues. Mutating
+# tracked files mid-commit (between staging and write-tree) caused
+# index/cache-tree desync bugs. The pre-commit hook verifies only;
+# fixing failures is the caller's responsibility (e.g., the LLM
+# invoking /quick-commit should run the appropriate fixer, re-stage,
+# and retry).
 #
 # Safety model:
 # - In safe mode, the git-hook.sh intercepts and prompts user for permission
@@ -232,68 +237,6 @@ warn_untracked() {
     return 0
 }
 
-# Auto-fix formatting issues before commit
-# Detects project type and runs the appropriate lint/format command
-# Args: $1 = repo path (optional, defaults to ".")
-auto_fix_formatting() {
-    local repo_path="${1:-.}"
-    echo "=== Auto-fixing formatting ==="
-
-    # JavaScript/TypeScript projects: try common fix/format scripts
-    #
-    # We keep auto-fix non-blocking (|| true) so pre-existing lint errors in
-    # other repos don't wedge every commit, but we DO surface the linter's
-    # exit code with a visible WARN banner. Previously the exit code was
-    # silently swallowed, which let real errors scroll past unnoticed.
-    if [ -f "$repo_path/package.json" ]; then
-        if command -v pnpm &> /dev/null; then
-            local linter_cmd=""
-            if grep -q '"lint:fix"' "$repo_path/package.json" 2>/dev/null; then
-                linter_cmd="lint:fix"
-            elif grep -q '"format"' "$repo_path/package.json" 2>/dev/null; then
-                linter_cmd="format"
-            elif grep -q '"lint"' "$repo_path/package.json" 2>/dev/null; then
-                linter_cmd="lint"
-            fi
-            if [ -n "$linter_cmd" ]; then
-                log_info "Running pnpm $linter_cmd..."
-                local linter_rc=0
-                ( cd "$repo_path" && pnpm "$linter_cmd" ) || linter_rc=$?
-                if [ "$linter_rc" -ne 0 ]; then
-                    log_warning "pnpm $linter_cmd exited with code $linter_rc — lint errors remain after auto-fix (see output above). Commit will proceed; fix manually or run 'pnpm lint' to review."
-                fi
-                return 0
-            fi
-        fi
-    fi
-
-    # Rust projects: use cargo clippy with fix
-    if [ -f "$repo_path/Cargo.toml" ]; then
-        if command -v cargo &> /dev/null; then
-            log_info "Running cargo clippy --fix..."
-            ( cd "$repo_path" && cargo clippy --fix --allow-dirty --allow-staged 2>/dev/null ) || true
-            return 0
-        fi
-    fi
-
-    # Python projects: try ruff (fast), then black
-    if [ -f "$repo_path/pyproject.toml" ] || [ -f "$repo_path/setup.py" ] || [ -f "$repo_path/requirements.txt" ]; then
-        if command -v ruff &> /dev/null; then
-            log_info "Running ruff check --fix..."
-            ( cd "$repo_path" && ruff check --fix . 2>/dev/null ) || true
-            ( cd "$repo_path" && ruff format . 2>/dev/null ) || true
-            return 0
-        elif command -v black &> /dev/null; then
-            log_info "Running black..."
-            ( cd "$repo_path" && black . 2>/dev/null ) || true
-            return 0
-        fi
-    fi
-
-    log_info "No linter detected, skipping auto-fix"
-    return 0
-}
-
 # Execute commit with retry on pre-commit hook failure
 # Args: $1 = commit message, $2 = repo path (optional, defaults to ".")
 do_commit_with_retry() {
@@ -318,9 +261,7 @@ do_commit_with_retry() {
 
         # Commit failed - check if we should retry
         if [ $attempt -lt $max_attempts ]; then
-            log_warning "Commit failed (exit code $commit_result), attempting auto-fix and retry..."
-            auto_fix_formatting "$repo_path"
-            echo ""
+            log_warning "Commit failed (exit code $commit_result), retrying..."
         else
             log_error "Commit failed after $max_attempts attempts"
             return 1
@@ -380,10 +321,6 @@ single_repo_commit() {
     # Require user confirmation before proceeding
     confirm_commit
 
-    echo ""
-
-    # Auto-fix formatting BEFORE commit to avoid pre-commit hook failures
-    auto_fix_formatting
     echo ""
 
     # Commit with retry logic
@@ -626,10 +563,6 @@ execute_commits() {
         # Require user confirmation before proceeding
         confirm_commit
 
-        echo ""
-
-        # Auto-fix formatting BEFORE commit
-        auto_fix_formatting "$repo_path"
         echo ""
 
         if do_commit_with_retry "$message" "$repo_path"; then
