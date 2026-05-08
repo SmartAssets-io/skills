@@ -338,98 +338,228 @@ single_repo_commit() {
     fi
 }
 
+# Emit one repository entry as JSON. Used by discover_repos() for both
+# the synthetic start-directory entry and each nested repo entry.
+# Args: $1 = first-flag-name (var name to track JSON comma separator),
+#       $2 = repo_dir (relative path or "."),
+#       $3 = is_start_directory ("true"/"false"),
+#       $4 = start_dir (absolute path of discovery root)
+# Returns: file count contributed by this entry, written to stdout-after-JSON
+#          via the global $LAST_REPO_FILE_COUNT variable.
+# Side effects (selection-config tracking):
+# - EXCLUDED_TOTAL_COUNT increments for every repo this discovery encounters
+#   that is filtered out by the selection config — regardless of whether
+#   that repo has uncommitted changes. This counter is what populates the
+#   `selection.excluded_total` field in --discover JSON, replacing an
+#   earlier (wrong) reading from REPO_SELECTION_EXCLUDED that returned 0
+#   for include-mode configs even when many repos were filtered.
+# - EXCLUDED_WITH_CHANGES additionally records rel_path for excluded repos
+#   that have porcelain entries, so the skill can surface them to the user.
+LAST_REPO_FILE_COUNT=0
+EXCLUDED_WITH_CHANGES=()
+EXCLUDED_TOTAL_COUNT=0
+emit_repo_entry() {
+    local first_var="$1"
+    local repo_dir="$2"
+    local is_start_directory="$3"
+    local start_dir="$4"
+    LAST_REPO_FILE_COUNT=0
+
+    # Compute rel_path up front; both the selection check and the JSON
+    # emission below rely on it.
+    local rel_path
+    if [ "$is_start_directory" = "true" ]; then
+        rel_path="."
+    else
+        rel_path=$(realpath --relative-to="$start_dir" "$repo_dir" 2>/dev/null || echo "$repo_dir")
+        rel_path="${rel_path#./}"  # Strip ./ prefix (macOS realpath lacks --relative-to)
+    fi
+
+    # Selection-config check runs BEFORE the file_count early-return so
+    # the EXCLUDED_TOTAL_COUNT tally includes filtered repos that happen
+    # to be clean. The start-directory entry is always exempt from
+    # filtering — dropping it silently is the bug that motivated the
+    # is_start_directory flag.
+    local is_excluded="false"
+    if [ "$is_start_directory" != "true" ] \
+        && type -t is_repo_selected &>/dev/null \
+        && [[ -n "${REPO_SELECTION_CONFIG:-}" ]]; then
+        local selection_path="$rel_path"
+        if [[ -n "${REPO_SELECTION_ROOT:-}" && "$REPO_SELECTION_ROOT" != "$start_dir" ]]; then
+            local abs_repo_dir
+            abs_repo_dir=$(cd "$repo_dir" && pwd)
+            selection_path="${abs_repo_dir#"$REPO_SELECTION_ROOT"/}"
+        fi
+        if ! is_repo_selected "$selection_path"; then
+            is_excluded="true"
+            EXCLUDED_TOTAL_COUNT=$((EXCLUDED_TOTAL_COUNT + 1))
+        fi
+    fi
+
+    local file_count
+    file_count=$(git -C "$repo_dir" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+
+    if [ "$is_excluded" = "true" ]; then
+        # Excluded repos with porcelain entries get surfaced separately so
+        # the user sees what the config dropped. Excluded-and-clean repos
+        # are tallied (EXCLUDED_TOTAL_COUNT above) but not surfaced — they
+        # have no actionable signal.
+        if [ "$file_count" -gt 0 ]; then
+            EXCLUDED_WITH_CHANGES+=("$rel_path")
+        fi
+        return 0
+    fi
+
+    if [ "$file_count" -eq 0 ]; then
+        return 0
+    fi
+
+    local abs_repo_dir
+    abs_repo_dir=$(cd "$repo_dir" && pwd)
+
+    local branch
+    branch=$(git -C "$repo_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+    local in_worktree="false"
+    if is_worktree "$repo_dir"; then
+        in_worktree="true"
+    fi
+
+    local detached_head="false"
+    if ! git -C "$repo_dir" symbolic-ref HEAD >/dev/null 2>&1; then
+        detached_head="true"
+    fi
+
+    local changed_files
+    changed_files=$(git -C "$repo_dir" status --porcelain | awk '{print $2}' | head -10 | tr '\n' ',' | sed 's/,$//')
+
+    local untracked_count
+    untracked_count=$(git -C "$repo_dir" ls-files --others --exclude-standard | wc -l | tr -d ' ')
+
+    if [ "${!first_var}" = "true" ]; then
+        printf -v "$first_var" "false"
+    else
+        echo ","
+    fi
+
+    echo '    {'
+    echo '      "path": "'"$rel_path"'",'
+    echo '      "absolute_path": "'"$abs_repo_dir"'",'
+    echo '      "is_start_directory": '"$is_start_directory"','
+    echo '      "branch": "'"$branch"'",'
+    echo '      "file_count": '"$file_count"','
+    echo '      "untracked_count": '"$untracked_count"','
+    echo '      "in_worktree": '"$in_worktree"','
+    echo '      "detached_head": '"$detached_head"','
+    echo '      "changed_files": "'"$changed_files"'"'
+    echo -n '    }'
+
+    LAST_REPO_FILE_COUNT=$file_count
+    return 0
+}
+
 # Multi-repo: Discover repositories with changes
 # Uses git -C to avoid changing working directory
 discover_repos() {
     local start_dir
     start_dir=$(pwd)
 
+    # Reset selection-tracking state for this discovery run.
+    EXCLUDED_WITH_CHANGES=()
+    EXCLUDED_TOTAL_COUNT=0
+
     # Load repo selection config if not already loaded (standalone invocation)
     if [[ -z "${REPO_SELECTION_CONFIG:-}" ]] && type -t load_selection &>/dev/null; then
         load_selection "$start_dir"
     fi
 
+    # Inspect cwd as a potential start-directory repo. Including it
+    # explicitly (with is_start_directory: true) prevents the silent-drop
+    # bug where a workspace root with tracked changes plus nested repos
+    # would have its cwd changes omitted from discover output.
+    local sd_is_git_repo="false"
+    local sd_has_changes="false"
+    local sd_origin=""
+    if git rev-parse --git-dir >/dev/null 2>&1; then
+        sd_is_git_repo="true"
+        if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+            sd_has_changes="true"
+        fi
+        sd_origin=$(cwd_origin)
+    fi
+
     echo "{"
     echo '  "mode": "multi-repo",'
-    echo '  "start_directory": "'"$start_dir"'",'
+    echo '  "start_directory": {'
+    echo '    "path": "'"$start_dir"'",'
+    echo '    "is_git_repo": '"$sd_is_git_repo"','
+    echo '    "has_changes": '"$sd_has_changes"','
+    echo '    "origin": "'"$sd_origin"'",'
+    echo '    "included_in_array": '"$sd_has_changes"
+    echo '  },'
     echo '  "repositories": ['
 
     local first=true
     local total_files=0
     local repo_count=0
 
+    # Emit start-directory entry first (when applicable) so consumers
+    # that read sequentially see it before any nested entries.
+    if [ "$sd_has_changes" = "true" ]; then
+        emit_repo_entry first "." "true" "$start_dir"
+        if [ "$LAST_REPO_FILE_COUNT" -gt 0 ]; then
+            total_files=$((total_files + LAST_REPO_FILE_COUNT))
+            repo_count=$((repo_count + 1))
+        fi
+    fi
+
+    # Walk nested .git directories (mindepth 2 skips cwd's own .git, which
+    # is handled above as the start-directory entry).
     while IFS= read -r git_dir; do
         local repo_dir
         repo_dir=$(dirname "$git_dir")
 
-        # Use git -C instead of cd to avoid working directory issues
-        local file_count
-        file_count=$(git -C "$repo_dir" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
-
-        if [ "$file_count" -gt 0 ]; then
-            local rel_path
-            rel_path=$(realpath --relative-to="$start_dir" "$repo_dir" 2>/dev/null || echo "$repo_dir")
-            rel_path="${rel_path#./}"  # Strip ./ prefix (macOS realpath lacks --relative-to)
-
-            # Skip repos not in selection config (if loaded)
-            # Compute path relative to config root for group matching,
-            # since groups are defined relative to the config file's directory,
-            # not the current working directory.
-            if type -t is_repo_selected &>/dev/null && [[ -n "${REPO_SELECTION_CONFIG:-}" ]]; then
-                local selection_path="$rel_path"
-                if [[ -n "${REPO_SELECTION_ROOT:-}" && "$REPO_SELECTION_ROOT" != "$start_dir" ]]; then
-                    local abs_repo_dir
-                    abs_repo_dir=$(cd "$repo_dir" && pwd)
-                    selection_path="${abs_repo_dir#"$REPO_SELECTION_ROOT"/}"
-                fi
-                if ! is_repo_selected "$selection_path"; then
-                    continue
-                fi
-            fi
-
-            local branch
-            branch=$(git -C "$repo_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-
-            local in_worktree="false"
-            if is_worktree "$repo_dir"; then
-                in_worktree="true"
-            fi
-
-            local detached_head="false"
-            if ! git -C "$repo_dir" symbolic-ref HEAD >/dev/null 2>&1; then
-                detached_head="true"
-            fi
-
-            local changed_files
-            changed_files=$(git -C "$repo_dir" status --porcelain | awk '{print $2}' | head -10 | tr '\n' ',' | sed 's/,$//')
-
-            local untracked_count
-            untracked_count=$(git -C "$repo_dir" ls-files --others --exclude-standard | wc -l | tr -d ' ')
-
-            if [ "$first" = true ]; then
-                first=false
-            else
-                echo ","
-            fi
-
-            echo '    {'
-            echo '      "path": "'"$rel_path"'",'
-            echo '      "absolute_path": "'"$repo_dir"'",'
-            echo '      "branch": "'"$branch"'",'
-            echo '      "file_count": '"$file_count"','
-            echo '      "untracked_count": '"$untracked_count"','
-            echo '      "in_worktree": '"$in_worktree"','
-            echo '      "detached_head": '"$detached_head"','
-            echo '      "changed_files": "'"$changed_files"'"'
-            echo -n '    }'
-
-            total_files=$((total_files + file_count))
+        emit_repo_entry first "$repo_dir" "false" "$start_dir"
+        if [ "$LAST_REPO_FILE_COUNT" -gt 0 ]; then
+            total_files=$((total_files + LAST_REPO_FILE_COUNT))
             repo_count=$((repo_count + 1))
         fi
-    done < <(find . -type d -name ".git" -not -path "*/node_modules/*" 2>/dev/null)
+    done < <(find . -mindepth 2 -type d -name ".git" -not -path "*/node_modules/*" 2>/dev/null)
 
     echo ""
     echo '  ],'
+
+    # Selection block: surface what the .multi-repo-selection.jsonc config
+    # filtered out. Without this, the user has no signal that excluded
+    # repos with uncommitted changes were silently dropped.
+    #
+    # excluded_total counts repos this discovery encountered that the config
+    # filtered out (regardless of whether they had changes). It is NOT the
+    # size of the config's literal exclude list — that interpretation gave
+    # zero for include-mode configs even when many repos were filtered, and
+    # contradicted the EXCLUDED_WITH_CHANGES count.
+    local config_loaded="false"
+    local config_path=""
+    if [[ -n "${REPO_SELECTION_CONFIG:-}" ]]; then
+        config_loaded="true"
+        config_path="$REPO_SELECTION_CONFIG"
+    fi
+    echo '  "selection": {'
+    echo '    "config_path": "'"$config_path"'",'
+    echo '    "config_loaded": '"$config_loaded"','
+    echo '    "excluded_total": '"$EXCLUDED_TOTAL_COUNT"','
+    echo -n '    "excluded_with_changes": ['
+    if [ ${#EXCLUDED_WITH_CHANGES[@]} -gt 0 ]; then
+        local sep=""
+        local p
+        for p in "${EXCLUDED_WITH_CHANGES[@]}"; do
+            echo -n "$sep\"$p\""
+            sep=", "
+        done
+    fi
+    echo ']'
+    echo '  },'
+
     echo '  "summary": {'
     echo '    "total_repositories": '"$repo_count"','
     echo '    "total_files": '"$total_files"','
@@ -609,8 +739,70 @@ has_nested_repos() {
     [ "$nested_count" -gt 0 ]
 }
 
+# Returns the cwd repo's origin URL on stdout, or empty string when cwd is
+# not a git repo or has no origin remote configured.
+cwd_origin() {
+    git remote get-url origin 2>/dev/null || true
+}
+
+# Returns 0 (true) if cwd is a git repo with tracked modifications that
+# would be picked up by `git commit -a`. Returns 1 otherwise (not a repo,
+# no tracked changes, or untracked-only).
+cwd_has_tracked_changes() {
+    if ! git rev-parse --git-dir >/dev/null 2>&1; then
+        return 1
+    fi
+    if ! git diff --quiet 2>/dev/null; then
+        return 0
+    fi
+    if ! git diff --cached --quiet 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+# Emit one origin URL per line for nested git repos that have changes.
+# Skips nested repos whose remote.origin.url is unset.
+nested_changed_origins() {
+    while IFS= read -r git_dir; do
+        local repo_dir
+        repo_dir=$(dirname "$git_dir")
+        if [ -n "$(git -C "$repo_dir" status --porcelain 2>/dev/null)" ]; then
+            local origin
+            origin=$(git -C "$repo_dir" remote get-url origin 2>/dev/null || true)
+            [ -n "$origin" ] && echo "$origin"
+        fi
+    done < <(find . -mindepth 2 -type d -name ".git" -not -path "*/node_modules/*" 2>/dev/null)
+}
+
+# Decide the recommended default for ambiguous mode.
+# Echoes "multi-repo" when cwd has no origin OR any nested repo with
+# changes has an origin different from cwd's origin. Otherwise echoes
+# "single-repo".
+recommend_ambiguous_default() {
+    local cwd_origin_url="$1"
+    if [ -z "$cwd_origin_url" ]; then
+        echo "multi-repo"
+        return
+    fi
+    while IFS= read -r nested_origin; do
+        if [ -n "$nested_origin" ] && [ "$nested_origin" != "$cwd_origin_url" ]; then
+            echo "multi-repo"
+            return
+        fi
+    done < <(nested_changed_origins)
+    echo "single-repo"
+}
+
 # Mode detection with JSON output
-# Outputs deterministic mode decision for Claude to use
+# Outputs deterministic mode decision for Claude to use.
+#
+# Modes:
+#   single-repo  - no nested repos, or MULTI_REPO=false override
+#   multi-repo   - nested repos exist and cwd has no tracked changes (no risk
+#                  of dropping cwd work), or MULTI_REPO=true override
+#   ambiguous    - nested repos exist AND cwd has tracked changes; the
+#                  caller MUST prompt the user (see recommended_default)
 detect_mode() {
     local git_root
     git_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
@@ -618,6 +810,18 @@ detect_mode() {
     local mode="single-repo"
     local reason=""
     local nested_count=0
+    local cwd_is_git_repo="false"
+    local cwd_changes="false"
+    local cwd_origin_url=""
+    local recommended_default=""
+
+    if [ -n "$git_root" ]; then
+        cwd_is_git_repo="true"
+        cwd_origin_url=$(cwd_origin)
+        if cwd_has_tracked_changes; then
+            cwd_changes="true"
+        fi
+    fi
 
     # Check explicit environment variable first
     if [ "${MULTI_REPO:-}" = "false" ]; then
@@ -629,11 +833,15 @@ detect_mode() {
     else
         # Auto-detect nested repositories (search from current directory downward only)
         nested_count=$(find . -mindepth 2 -type d -name ".git" -not -path "*/node_modules/*" 2>/dev/null | wc -l | tr -d ' ')
-        if [ "$nested_count" -gt 0 ]; then
-            mode="multi-repo"
-            reason="detected $nested_count nested repositories below current directory"
-        else
+        if [ "$nested_count" -eq 0 ]; then
             reason="no nested repositories found"
+        elif [ "$cwd_changes" = "true" ]; then
+            mode="ambiguous"
+            reason="cwd has tracked changes AND $nested_count nested repositories detected"
+            recommended_default=$(recommend_ambiguous_default "$cwd_origin_url")
+        else
+            mode="multi-repo"
+            reason="detected $nested_count nested repositories; cwd has no tracked changes to drop"
         fi
     fi
 
@@ -641,6 +849,12 @@ detect_mode() {
     echo '  "mode": "'"$mode"'",'
     echo '  "reason": "'"$reason"'",'
     echo '  "nested_repo_count": '"$nested_count"','
+    echo '  "cwd_is_git_repo": '"$cwd_is_git_repo"','
+    echo '  "cwd_has_tracked_changes": '"$cwd_changes"','
+    echo '  "cwd_origin": "'"$cwd_origin_url"'",'
+    if [ -n "$recommended_default" ]; then
+        echo '  "recommended_default": "'"$recommended_default"'",'
+    fi
     echo '  "git_root": "'"$git_root"'",'
     echo '  "working_directory": "'"$(pwd)"'",'
     echo '  "single_repo_override": "--single-repo flag bypasses auto-detection"'
