@@ -115,14 +115,23 @@ scripts/quick-commit.sh --detect-mode
 This returns JSON:
 ```json
 {
-  "mode": "single-repo",          // or "multi-repo"
+  "mode": "single-repo",          // or "multi-repo" or "ambiguous"
   "reason": "no nested repositories found",
   "nested_repo_count": 0,
+  "cwd_is_git_repo": true,
+  "cwd_has_tracked_changes": false,
+  "cwd_origin": "git@gitlab.com:smart-assets.io/foo.git",
+  "recommended_default": "multi-repo",  // present only when mode == "ambiguous"
   "git_root": "/path/to/repo",
   "working_directory": "/path/to/current/dir",
   "single_repo_override": "--single-repo flag bypasses auto-detection"
 }
 ```
+
+**Three modes:**
+- `"single-repo"`: no nested repos found, or `MULTI_REPO=false`. Use Single-Repo Mode workflow.
+- `"multi-repo"`: nested repos exist and cwd has no tracked changes (no risk of dropping work), or `MULTI_REPO=true`. Use Multi-Repo Mode workflow.
+- `"ambiguous"`: nested repos exist AND cwd has tracked changes. **You MUST prompt the user** before proceeding (see "Ambiguous Mode" section below). Never silently pick — the cwd's tracked changes will be silently dropped if you default to multi-repo without confirmation.
 
 **Why this approach:**
 - The script handles detection logic deterministically in bash
@@ -132,7 +141,36 @@ This returns JSON:
 - Consistent behavior across all sessions
 - Version-controlled, testable code
 
-**Use the returned `mode` value** to decide whether to use single-repo or multi-repo workflow.
+**Use the returned `mode` value** to decide whether to use single-repo, multi-repo, or ambiguous-prompt workflow.
+
+---
+
+## Ambiguous Mode
+
+When `--detect-mode` returns `"mode": "ambiguous"`, the cwd is itself a git repo with tracked changes AND there are nested repos below it. Auto-picking multi-repo would silently drop the cwd's tracked changes — this is the bug fixed by ambiguous-mode classification.
+
+**You MUST prompt the user with AskUserQuestion before proceeding.** Use the `recommended_default` field to mark the recommended option.
+
+```
+Question: "Detected tracked changes in the current directory AND nested git repositories. Which scope should /quick-commit use?"
+
+Header: "Scope"
+
+Options:
+1. Single-repo (commit only the current directory) - Commits tracked changes in the cwd repo only; ignores nested repos. Equivalent to --single-repo.
+2. Multi-repo (commit across cwd + nested repos) - Includes the cwd repo and nested repos in the discover/execute flow.
+
+Mark whichever option matches `recommended_default` from the --detect-mode JSON with "(Recommended)".
+```
+
+**Why the recommendation is computed this way (in the script):**
+- If cwd has no `origin` remote configured → recommend multi-repo (cwd is likely a workspace umbrella that isn't pushed anywhere on its own; the nested repos are the real units of work)
+- If any nested repo with changes has an origin URL different from cwd's origin → recommend multi-repo (workspace contains independent projects with their own remotes)
+- Otherwise → recommend single-repo (origins all match — the nested `.git` dirs are likely subtree clones of the same repo, not independent units)
+
+**Apply the user's choice:**
+- "Single-repo" → run `quick-commit.sh --single-repo "message"` (skip Multi-Repo Mode entirely)
+- "Multi-repo" → set `MULTI_REPO=true` and follow Multi-Repo Mode below; the discover output will include the cwd as a `is_start_directory: true` entry
 
 ---
 
@@ -142,6 +180,27 @@ This returns JSON:
 2. **NEVER run `git add` on tracked files** - the script uses `git commit -a` which automatically includes all tracked modifications (both staged and unstaged). Do NOT ask the user to confirm or stage tracked files.
 3. **ALWAYS use the bash script** - it handles formatting, hooks, and retries
 4. **Always diff ALL files** before generating commit messages - do not rely on session memory
+5. **NEVER offer to `git add` a directory that contains its own `.git`** - see Nested Untracked Git Repos below. Adding such a path creates an unwanted gitlink/submodule reference.
+
+---
+
+## Nested Untracked Git Repos
+
+When iterating untracked paths from `git ls-files --others --exclude-standard` (or `??` lines from `git status --short`), some entries may be directories that contain their own `.git`. These are **independent git repositories**, not regular untracked content. `git add` on such a path produces a gitlink (a special index entry pointing to a commit SHA) — a submodule reference that is almost certainly not the user's intent in a subtree-style workspace.
+
+**For each untracked path** (Bash):
+
+```bash
+if [ -d "<path>/.git" ]; then
+    # Nested git repo - DO NOT include in "add untracked?" prompt
+fi
+```
+
+**Handling rules:**
+- **Exclude** these paths from the AskUserQuestion "add untracked?" options entirely. Never offer them as options the user can select.
+- **Surface them separately** in your response, once, before or after the prompt. Example wording:
+  > Detected N nested git repo(s) appearing as untracked content from this repo's perspective: `path1/`, `path2/`. These would create gitlink/submodule references if added — they are skipped automatically. If you intended to add one as a submodule, run `git submodule add <url> <path>` yourself and re-run /quick-commit.
+- The script's `--discover` output (multi-repo mode) already separates nested repos into their own entries, so this rule applies primarily to the single-repo flow's untracked handling.
 
 ---
 
@@ -319,10 +378,39 @@ MULTI_REPO=true scripts/quick-commit.sh --discover
 ```
 
 This returns JSON with:
-- List of repositories with changes
+- A top-level `start_directory` block describing the cwd repo (`is_git_repo`, `has_changes`, `origin`, `included_in_array`)
+- List of repositories with changes — including the cwd repo as the first entry with `"is_start_directory": true` when it has tracked or untracked changes
 - File counts per repository
 - Branch name for each repository
 - Whether approval is needed (based on thresholds: >5 files or >2 repos)
+
+**Start-directory inclusion is critical.** A previous version of this script silently omitted the cwd repo when nested repos existed, dropping tracked changes from `--discover` output. The `is_start_directory: true` flag and the `start_directory` metadata block exist precisely so you can never miss it. **Before generating commit messages, verify: if `start_directory.has_changes == true`, the repositories array MUST contain an entry with `is_start_directory: true`. If it does not, that is a bug — surface it to the user and STOP.**
+
+**Selection-config filtering must also be surfaced.** The discover output includes a top-level `selection` block:
+
+```json
+"selection": {
+  "config_path": "/path/to/.multi-repo-selection.jsonc",
+  "config_loaded": true,
+  "excluded_total": 9,
+  "excluded_with_changes": ["SATCHEL/SatchelSmartWallet", "Websites_apps/foo"]
+}
+```
+
+**If `selection.excluded_with_changes` is non-empty**, you MUST surface this to the user before generating commit messages — otherwise the user has no signal that their `.multi-repo-selection.jsonc` config silently filtered out repos that have uncommitted work. Use AskUserQuestion:
+
+```
+Question: "N repo(s) excluded by .multi-repo-selection.jsonc have uncommitted changes: <comma-separated list>. How do you want to proceed?"
+
+Header: "Excluded"
+
+Options:
+1. Proceed with filtered set - Commit only the repos selected by the config; leave excluded repos untouched.
+2. Override and include all - Re-run discover with MULTI_REPO_ALL=true to bypass the config for this run.
+```
+
+- "Proceed with filtered set" → continue with the existing discover output.
+- "Override and include all" → re-run `MULTI_REPO=true MULTI_REPO_ALL=true quick-commit.sh --discover` and use that output instead.
 
 If no repositories have changes, inform user and STOP.
 
