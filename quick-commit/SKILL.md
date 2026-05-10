@@ -386,32 +386,6 @@ This returns JSON with:
 
 **Start-directory inclusion is critical.** A previous version of this script silently omitted the cwd repo when nested repos existed, dropping tracked changes from `--discover` output. The `is_start_directory: true` flag and the `start_directory` metadata block exist precisely so you can never miss it. **Before generating commit messages, verify: if `start_directory.has_changes == true`, the repositories array MUST contain an entry with `is_start_directory: true`. If it does not, that is a bug — surface it to the user and STOP.**
 
-**Selection-config filtering must also be surfaced.** The discover output includes a top-level `selection` block:
-
-```json
-"selection": {
-  "config_path": "/path/to/.multi-repo-selection.jsonc",
-  "config_loaded": true,
-  "excluded_total": 9,
-  "excluded_with_changes": ["SATCHEL/SatchelSmartWallet", "Websites_apps/foo"]
-}
-```
-
-**If `selection.excluded_with_changes` is non-empty**, you MUST surface this to the user before generating commit messages — otherwise the user has no signal that their `.multi-repo-selection.jsonc` config silently filtered out repos that have uncommitted work. Use AskUserQuestion:
-
-```
-Question: "N repo(s) excluded by .multi-repo-selection.jsonc have uncommitted changes: <comma-separated list>. How do you want to proceed?"
-
-Header: "Excluded"
-
-Options:
-1. Proceed with filtered set - Commit only the repos selected by the config; leave excluded repos untouched.
-2. Override and include all - Re-run discover with MULTI_REPO_ALL=true to bypass the config for this run.
-```
-
-- "Proceed with filtered set" → continue with the existing discover output.
-- "Override and include all" → re-run `MULTI_REPO=true MULTI_REPO_ALL=true quick-commit.sh --discover` and use that output instead.
-
 If no repositories have changes, inform user and STOP.
 
 ### Step 2: Branch Consistency Check
