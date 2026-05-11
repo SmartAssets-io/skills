@@ -346,18 +346,7 @@ single_repo_commit() {
 #       $4 = start_dir (absolute path of discovery root)
 # Returns: file count contributed by this entry, written to stdout-after-JSON
 #          via the global $LAST_REPO_FILE_COUNT variable.
-# Side effects (selection-config tracking):
-# - EXCLUDED_TOTAL_COUNT increments for every repo this discovery encounters
-#   that is filtered out by the selection config — regardless of whether
-#   that repo has uncommitted changes. This counter is what populates the
-#   `selection.excluded_total` field in --discover JSON, replacing an
-#   earlier (wrong) reading from REPO_SELECTION_EXCLUDED that returned 0
-#   for include-mode configs even when many repos were filtered.
-# - EXCLUDED_WITH_CHANGES additionally records rel_path for excluded repos
-#   that have porcelain entries, so the skill can surface them to the user.
 LAST_REPO_FILE_COUNT=0
-EXCLUDED_WITH_CHANGES=()
-EXCLUDED_TOTAL_COUNT=0
 emit_repo_entry() {
     local first_var="$1"
     local repo_dir="$2"
@@ -365,8 +354,12 @@ emit_repo_entry() {
     local start_dir="$4"
     LAST_REPO_FILE_COUNT=0
 
-    # Compute rel_path up front; both the selection check and the JSON
-    # emission below rely on it.
+    local file_count
+    file_count=$(git -C "$repo_dir" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$file_count" -eq 0 ]; then
+        return 0
+    fi
+
     local rel_path
     if [ "$is_start_directory" = "true" ]; then
         rel_path="."
@@ -375,12 +368,9 @@ emit_repo_entry() {
         rel_path="${rel_path#./}"  # Strip ./ prefix (macOS realpath lacks --relative-to)
     fi
 
-    # Selection-config check runs BEFORE the file_count early-return so
-    # the EXCLUDED_TOTAL_COUNT tally includes filtered repos that happen
-    # to be clean. The start-directory entry is always exempt from
-    # filtering — dropping it silently is the bug that motivated the
-    # is_start_directory flag.
-    local is_excluded="false"
+    # Skip repos not in selection config (if loaded). The start-directory
+    # entry is always included regardless of selection config — dropping
+    # it silently is the bug this entry exists to fix.
     if [ "$is_start_directory" != "true" ] \
         && type -t is_repo_selected &>/dev/null \
         && [[ -n "${REPO_SELECTION_CONFIG:-}" ]]; then
@@ -391,27 +381,8 @@ emit_repo_entry() {
             selection_path="${abs_repo_dir#"$REPO_SELECTION_ROOT"/}"
         fi
         if ! is_repo_selected "$selection_path"; then
-            is_excluded="true"
-            EXCLUDED_TOTAL_COUNT=$((EXCLUDED_TOTAL_COUNT + 1))
+            return 0
         fi
-    fi
-
-    local file_count
-    file_count=$(git -C "$repo_dir" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
-
-    if [ "$is_excluded" = "true" ]; then
-        # Excluded repos with porcelain entries get surfaced separately so
-        # the user sees what the config dropped. Excluded-and-clean repos
-        # are tallied (EXCLUDED_TOTAL_COUNT above) but not surfaced — they
-        # have no actionable signal.
-        if [ "$file_count" -gt 0 ]; then
-            EXCLUDED_WITH_CHANGES+=("$rel_path")
-        fi
-        return 0
-    fi
-
-    if [ "$file_count" -eq 0 ]; then
-        return 0
     fi
 
     local abs_repo_dir
@@ -463,10 +434,6 @@ emit_repo_entry() {
 discover_repos() {
     local start_dir
     start_dir=$(pwd)
-
-    # Reset selection-tracking state for this discovery run.
-    EXCLUDED_WITH_CHANGES=()
-    EXCLUDED_TOTAL_COUNT=0
 
     # Load repo selection config if not already loaded (standalone invocation)
     if [[ -z "${REPO_SELECTION_CONFIG:-}" ]] && type -t load_selection &>/dev/null; then
@@ -528,38 +495,6 @@ discover_repos() {
 
     echo ""
     echo '  ],'
-
-    # Selection block: surface what the .multi-repo-selection.jsonc config
-    # filtered out. Without this, the user has no signal that excluded
-    # repos with uncommitted changes were silently dropped.
-    #
-    # excluded_total counts repos this discovery encountered that the config
-    # filtered out (regardless of whether they had changes). It is NOT the
-    # size of the config's literal exclude list — that interpretation gave
-    # zero for include-mode configs even when many repos were filtered, and
-    # contradicted the EXCLUDED_WITH_CHANGES count.
-    local config_loaded="false"
-    local config_path=""
-    if [[ -n "${REPO_SELECTION_CONFIG:-}" ]]; then
-        config_loaded="true"
-        config_path="$REPO_SELECTION_CONFIG"
-    fi
-    echo '  "selection": {'
-    echo '    "config_path": "'"$config_path"'",'
-    echo '    "config_loaded": '"$config_loaded"','
-    echo '    "excluded_total": '"$EXCLUDED_TOTAL_COUNT"','
-    echo -n '    "excluded_with_changes": ['
-    if [ ${#EXCLUDED_WITH_CHANGES[@]} -gt 0 ]; then
-        local sep=""
-        local p
-        for p in "${EXCLUDED_WITH_CHANGES[@]}"; do
-            echo -n "$sep\"$p\""
-            sep=", "
-        done
-    fi
-    echo ']'
-    echo '  },'
-
     echo '  "summary": {'
     echo '    "total_repositories": '"$repo_count"','
     echo '    "total_files": '"$total_files"','

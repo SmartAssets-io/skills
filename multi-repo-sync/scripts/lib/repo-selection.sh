@@ -53,9 +53,6 @@ find_selection_config() {
     while [[ "$dir" != "/" ]]; do
         # Prefer .jsonc, fall back to .json
         if [[ -f "$dir/.multi-repo-selection.jsonc" ]]; then
-            if [[ -f "$dir/.multi-repo-selection.json" ]]; then
-                echo "Warning: both .multi-repo-selection.jsonc and .multi-repo-selection.json exist in $dir; using .jsonc and ignoring .json" >&2
-            fi
             REPO_SELECTION_CONFIG="$dir/.multi-repo-selection.jsonc"
             return 0
         fi
@@ -68,9 +65,6 @@ find_selection_config() {
 
     # Check root as well
     if [[ -f "/.multi-repo-selection.jsonc" ]]; then
-        if [[ -f "/.multi-repo-selection.json" ]]; then
-            echo "Warning: both .multi-repo-selection.jsonc and .multi-repo-selection.json exist in /; using .jsonc and ignoring .json" >&2
-        fi
         REPO_SELECTION_CONFIG="/.multi-repo-selection.jsonc"
         return 0
     fi
