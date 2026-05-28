@@ -9,7 +9,7 @@ license: SSL
 If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
 
 ```
-/agent-team [OPTIONS]
+/agent:team [OPTIONS]
 
 Options:
   --task "DESCRIPTION"  Task description for the team
@@ -79,12 +79,115 @@ agent-team.sh --kill
 
 ## Coordination
 
-Agents coordinate through two complementary mechanisms:
+Agents coordinate through three complementary mechanisms:
 
 1. **Claude Code Teams**: Built-in `TeamCreate`/`TaskCreate`/`SendMessage` for real-time task assignment and communication.
 2. **Stigmergic Files**: `docs/ToDos.md` for task claiming, `docs/work-logs/` for progress, `docs/discoveries/` for cross-agent signals.
+3. **Handoff Documents**: `docs/handoffs/<from>--<to>--<ts>.md` for compact, structured context transfer at delegation and worker-transition edges. See [Handoff Document Standard](../../../../docs/common/handoff-standard.md).
 
 Each agent uses a `claimed_by` identifier following the pattern `{session}/{role}` (e.g., `agent-team/orchestrator`, `agent-team/worker-1`).
+
+## Embedded Handoff Documents
+
+`/agent-team` writes handoff documents automatically at three transition
+edges. These are **not** user-invoked; they are side effects of the
+orchestrator and workers crossing delegation, pause, completion, or
+block boundaries. The artifact shape and redaction rules are defined in
+the [Handoff Document Standard](../../../../docs/common/handoff-standard.md);
+this section describes the embedded behavior unique to agent teams.
+
+### Edge 1 -- Orchestrator delegates to a worker
+
+When the orchestrator assigns a task to a worker, **before** sending
+the `SendMessage` brief, it writes:
+
+```
+docs/handoffs/<team-name>-orchestrator--<team-name>-<worker-name>--<ISO-timestamp>.md
+```
+
+Frontmatter highlights:
+
+```yaml
+---
+kind: handoff
+from: <team-name>/orchestrator
+to: <team-name>/<worker-name>
+produced_at: <ISO-timestamp>
+retention: durable
+focus: <one-sentence statement of what the worker should accomplish>
+related_task: TODO-<NNN>-<MMM>
+suggested_skills:
+  - /tdd
+  - /quick-commit
+---
+```
+
+Body sections follow the template at
+`AItools/templates/handoff-document.md`: Current State, Key Artifacts
+(paths and URLs only), Next-Agent Focus, Suggested Skills, Open
+Questions, Redaction Notes.
+
+After writing the artifact, the orchestrator's `SendMessage` to the
+worker contains **only** the handoff path -- the worker reads the
+artifact directly. This keeps live-IPC traffic compact and preserves
+the audit trail.
+
+### Edge 2 -- Worker pauses, completes, or blocks
+
+When a worker transitions out of `in_progress`, it writes a handoff
+**back to the orchestrator** (or to `any` if the orchestrator is no
+longer needed). One artifact per transition:
+
+| Transition | `to:` | `focus:` shape |
+|------------|-------|----------------|
+| Pause | `<team-name>/orchestrator` | "Resume from cycle B<n> when [condition] holds" |
+| Complete | `<team-name>/orchestrator` | "Task TODO-<id> complete; orchestrator may close or reassign" |
+| Block | `<team-name>/orchestrator` | "Blocked on [dependency]; unblock by [action]" |
+
+The worker also updates its work-log frontmatter to point at the new
+artifact:
+
+```yaml
+---
+handoff_status: ready | paused | blocked
+handoff_artifact: docs/handoffs/<this-handoff>.md
+---
+```
+
+### Edge 3 -- Team session end
+
+When the tmux session is torn down (`--kill` invocation or user-driven
+close), the orchestrator writes a final handoff with `to: any` and a
+`focus:` describing the team's outstanding work. The handoff names the
+next likely slash command in `suggested_skills:` so a future
+`/nextTask` invocation can pick the thread up.
+
+### Redaction
+
+Each write applies the regex denylist from the Handoff Document
+Standard at write time. Categories touched and substitution count are
+recorded in the artifact's `redaction:` frontmatter block. The
+orchestrator does **not** include redaction values in its `SendMessage`
+brief to workers -- workers read the redacted artifact and may request
+clarification through IPC if a redaction obscured load-bearing context.
+
+### Reading on worker start
+
+Each worker begins by reading the handoff artifact named in its
+`SendMessage` brief. After reading, the worker updates the artifact's
+frontmatter:
+
+```yaml
+---
+consumed_at: <ISO-timestamp of read>
+consumed_by: <team-name>/<worker-name>
+---
+```
+
+These are the only edits a consumer makes to a handoff. The body is
+append-only thereafter -- if the worker disagrees with the handoff or
+finds it stale, the correction goes in a new handoff (worker to
+orchestrator), referencing the original via `related_handoff:`.
 
 ## Options
 
