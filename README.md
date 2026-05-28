@@ -2,11 +2,11 @@
 
 **Operational agent skills for AI-assisted development workflows**
 
-[OpenSkills](https://github.com/numman-ali/openskills)-compatible skill collection with bundled scripts for epoch-based task management, multi-agent coordination, multi-repo git operations, and Smart Asset creation. Works with Claude Code, Cursor, Windsurf, Aider, and any agent that reads `AGENTS.md`.
+[OpenSkills](https://github.com/numman-ali/openskills)-compatible skill collection with bundled scripts for epic-based task management, multi-agent coordination, multi-repo git operations, and Smart Asset creation. Works with Claude Code, Cursor, Windsurf, Aider, and any agent that reads `AGENTS.md`.
 
 <!-- badges-start -->
 [![OpenSkills](https://img.shields.io/badge/OpenSkills-compatible-blue)](https://github.com/numman-ali/openskills)
-[![Skills](https://img.shields.io/badge/skills-15-brightgreen)](./)
+[![Skills](https://img.shields.io/badge/skills-23-brightgreen)](./)
 [![Changelog](https://img.shields.io/badge/changelog-latest-blue)](https://gitlab.com/smart-assets.io/gitlab-profile/-/blob/master/CHANGELOG.md)
 [![License: SSL](https://img.shields.io/badge/license-SSL%20v0.2-orange)](LICENSE.md)
 <!-- badges-end -->
@@ -40,21 +40,29 @@ After installation, invoke skills with `/skill-name` in Claude Code or `npx open
 
 | Skill | Description |
 |-------|-------------|
+| **agent-monitor** | Launch a tmux-based display for monitoring parallel agent teams with real-time dashboard and stigmergic file watchers |
 | **agent-team** | Launch a coordinated multi-agent Claude Code team with orchestrator and workers in tmux |
-| **agent-teams-tmux** | Launch a tmux-based display for monitoring parallel agent teams with real-time dashboard and stigmergic file watchers |
-| **create-smart-asset** | Create, initialize, and synchronize Smart Asset schemas and repository structure using SAIntrinsics master schema |
-| **epoch-hygiene** | Scan task tracking files for epoch completion status and perform hygiene operations (archiving, cleanup, validation) |
-| **epoch-review** | Preview and summarize epochs for high-level review of scope and progress before diving into implementation |
-| **implement-task** | Begin implementation of the next task supporting both IPC and stigmergic coordination with epoch-aware progress tracking |
-| **multi-agent-code-review** | Perform multi-agent code review using multiple LLM providers with consensus-based aggregation posted to GitHub PR or GitLab MR |
-| **multi-repo-sync** | Synchronize conventions and policies across all repositories in the workspace with branch consistency enforcement |
-| **next-task** | Review project task tracking and stigmergic signals to identify and explain the next task to work on |
-| **policy-harmonization** | Synchronize policies, approaches, and conventions across repositories by harmonizing with gitlab-profile standards |
-| **quick-commit** | Quick commit changes (asks about untracked files, auto-generates message or uses provided one) |
-| **recursive-push** | Push unpushed commits across all repositories in the workspace |
-| **user-story-management** | Create, link, and synchronize user stories with epochs providing bi-directional linking between UserStories.md and ToDos.md |
-| **version** | Show git commit hash and date for workflow tools and current repository |
-| **work-tasks** | Launch the todo-task-executor agent to systematically work through remaining tasks using stigmergic coordination |
+| **asset-create** | Create, initialize, and synchronize Smart Asset schemas and repository structure using SAIntrinsics master schema |
+| **design-component** | Generate a single UI component (button, card, form, navigation, ...) fully styled to the Smart Assets design system. |
+| **design-export** | Export a design session for handoff — bundle the image(s), a design spec (tokens + prompts + version history), a local HTML preview, and an archive. |
+| **design-iterate** | Conversationally refine a generated design ("make it more X"), tracking versions and history in a design session. |
+| **design-wireframe** | Generate a low-fidelity layout wireframe from a natural-language description, using the Smart Assets design system. |
+| **epic-hygiene** | Scan task tracking files for epic completion status and perform hygiene operations (archiving, cleanup, validation) |
+| **epic-review** | Preview and summarize epics for high-level review of scope and progress before diving into implementation |
+| **git-commit** | Quick commit changes (asks about untracked files, auto-generates message or uses provided one) |
+| **git-push** | Push unpushed commits across all repositories in the workspace |
+| **review-codebase** | Surface architectural friction and propose deepening candidates after ratifying or bootstrapping a load-bearing project Glossary.md. Insists on a consistent glossary as a precondition for any review. |
+| **review-multi** | Perform multi-agent code review using multiple LLM providers with consensus-based aggregation posted to GitHub PR or GitLab MR |
+| **spec-flow** | Create, link, and synchronize user flows in docs/User-Flows.md with bi-directional links to stories and epics; emits framework-agnostic test specs for integration-test authoring |
+| **spec-story** | Create, link, and synchronize user stories with epics providing bi-directional linking between UserStories.md and ToDos.md |
+| **sync-repos** | Synchronize conventions and policies across all repositories in the workspace with branch consistency enforcement |
+| **sync-sa-framework** | Synchronize policies, approaches, and conventions across repositories by harmonizing with gitlab-profile standards |
+| **task-complete** | Mark a task or epic complete with integrity reporting. Runs the user-flow chain walker, stamps any completion_gaps into YAML, and flips status. |
+| **task-implement** | Begin implementation of the next task supporting both IPC and stigmergic coordination with epic-aware progress tracking |
+| **task-next** | Review project task tracking and stigmergic signals to identify and explain the next task to work on |
+| **task-tdd** | Walk one test-driven development cycle (RED then GREEN, optionally Refactor while GREEN). Single-cycle-per-invocation by design so /loop /tdd composes safely. Reads docs/tdd-plans/<scope>-<ts>.md as the running behavior checklist and may be invoked standalone or as a follow-on to /review-codebase Phase 3 acceptance. |
+| **task-work** | Launch the todo-task-executor agent to systematically work through remaining tasks using stigmergic coordination |
+| **util-version** | Show git commit hash and date for workflow tools and current repository |
 
 ---
 
