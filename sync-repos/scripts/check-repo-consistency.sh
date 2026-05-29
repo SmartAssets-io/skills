@@ -32,11 +32,6 @@ if [[ -f "$SCRIPT_DIR/lib/repo-selection.sh" ]]; then
     source "$SCRIPT_DIR/lib/repo-selection.sh"
 fi
 
-# Worktree detection is owned by the Mode module (single source of truth).
-if [[ -f "$SCRIPT_DIR/lib/mode.sh" ]]; then
-    source "$SCRIPT_DIR/lib/mode.sh"
-fi
-
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -119,9 +114,15 @@ EOF
 # --- Core functions ---
 
 # Check if directory is a git worktree (not a regular checkout)
-# Delegates to the Mode module (single source of truth).
+# Matches is_worktree() from quick-commit.sh
 is_worktree() {
-    mode_is_worktree "${1:-.}"
+    local dir="${1:-.}"
+    if [ -f "$dir/.git" ]; then
+        return 0
+    elif git -C "$dir" rev-parse --git-dir 2>/dev/null | grep -q '/worktrees/'; then
+        return 0
+    fi
+    return 1
 }
 
 # Check if repo has uncommitted changes

@@ -26,12 +26,6 @@ if [[ -z "${HARMONIZE_UI_LOADED:-}" ]]; then
     source "${HARMONIZE_MODE_SCRIPT_DIR}/harmonize-ui.sh"
 fi
 
-# Execution Mode posture (safe|agentic|yolo) is owned by lib/mode.sh, the single
-# source of truth. is_agentic_mode and is_worktree below delegate to it.
-# detect_mode (harmonize's own interactive/yolo run-mode) is intentionally NOT
-# absorbed - it is a different concept.
-source "${HARMONIZE_MODE_SCRIPT_DIR}/mode.sh"
-
 # Default operational mode (set by detect_mode)
 MODE="${MODE:-interactive}"
 
@@ -71,8 +65,17 @@ detect_mode() {
 #   1 otherwise
 #
 is_agentic_mode() {
-    # Delegates to the Mode module (single source of truth).
-    is_agentic
+    # Check CLAUDE_CONFIG_DIR environment variable
+    if [[ "${CLAUDE_CONFIG_DIR:-}" == *"agentic"* ]]; then
+        return 0
+    fi
+
+    # Check if claude-agentic is in process tree (fallback)
+    if [[ "${CLAUDE_AGENTIC_MODE:-}" == "true" ]]; then
+        return 0
+    fi
+
+    return 1
 }
 
 #
@@ -86,8 +89,16 @@ is_agentic_mode() {
 #   1 otherwise
 #
 is_worktree() {
-    # Delegates to the Mode module (single source of truth).
-    mode_is_worktree "${1:-.}"
+    local dir="${1:-.}"
+    (
+        cd "$dir" 2>/dev/null || return 1
+        if [ -f .git ]; then
+            return 0
+        elif git rev-parse --git-dir 2>/dev/null | grep -q '/worktrees/'; then
+            return 0
+        fi
+        return 1
+    )
 }
 
 #

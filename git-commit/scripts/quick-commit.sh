@@ -68,11 +68,6 @@ if [[ -f "$SCRIPT_DIR/lib/repo-selection.sh" ]]; then
     source "$SCRIPT_DIR/lib/repo-selection.sh"
 fi
 
-# Worktree detection is owned by the Mode module (single source of truth).
-if [[ -f "$SCRIPT_DIR/lib/mode.sh" ]]; then
-    source "$SCRIPT_DIR/lib/mode.sh"
-fi
-
 # Encode a kv-list value into the URL-safe subset defined in
 # docs/designs/machine-readable-commit-format.md §4. Characters outside
 # [A-Za-z0-9._/+:T-] become %XX (uppercase hex).
@@ -269,8 +264,15 @@ confirm_commit() {
 # Check if in git worktree (YOLO mode)
 # Uses git -C to avoid changing working directory
 is_worktree() {
-    # Delegates to the Mode module (single source of truth).
-    mode_is_worktree "${1:-.}"
+    local dir="${1:-.}"
+    if [ -f "$dir/.git" ]; then
+        # .git is a file (not directory) = worktree
+        return 0
+    elif git -C "$dir" rev-parse --git-dir 2>/dev/null | grep -q '/worktrees/'; then
+        # git-dir contains /worktrees/ = worktree
+        return 0
+    fi
+    return 1
 }
 
 # Check .sh file permissions in git index
