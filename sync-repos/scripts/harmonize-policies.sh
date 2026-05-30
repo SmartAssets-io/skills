@@ -120,6 +120,8 @@ Operational Modes:
 Files Harmonized:
   - CLAUDE.md / AGENTS.md (AI assistant guidance)
   - docs/ToDos.md (task tracking with MR frontmatter)
+  - docs/UserStories.md (user stories driving feature development)
+  - docs/User-Flows.md (user interaction flows; created by /user-flow)
   - docs/Backlog.md (three-file pattern)
   - docs/CompletedTasks.md (three-file pattern)
   - docs/roadmap.md (per-repo release plan; see
