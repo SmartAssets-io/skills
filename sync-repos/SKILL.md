@@ -24,7 +24,7 @@ Options:
   --strict[=BRANCH]     Enforce branch consistency (default: dev)
   --dry-run             Preview changes without modifying files
   --yes, -y             Auto-apply without prompting
-  --scope workspace|subtree  Scan scope (default: subtree, i.e. cwd downward)
+  --scope workspace|subtree  Scan scope (default: workspace)
   --verbose             Detailed per-repo output
   --no-color            Disable colored output
 ```
@@ -49,7 +49,7 @@ Unlike `/harmonize` which operates on individual repositories or subtrees, `/mul
 |--------|-------------|
 | `--dry-run` | Preview all changes without modifying files or running harmonization |
 | `--yes`, `-y` | Auto-apply all changes without prompting |
-| `--scope [workspace\|subtree]` | Control scan scope: `subtree` (default) scans from the current directory downward; `workspace` scans the entire SA workspace |
+| `--scope [workspace\|subtree]` | Control scan scope: `workspace` scans the entire SA workspace, `subtree` scans from the current directory downward (default: `workspace`) |
 | `--verbose` | Show detailed output including per-repo branch states and diff details |
 | `--strict[=BRANCH]` | Enforce that all repos are on the specified branch (default: `dev`); blocks sync if any repo diverges |
 | `--all` | Ignore saved repo selection, operate on all repos (this run only) |
@@ -284,10 +284,10 @@ Pass `MULTI_REPO_ALL=true` or `--all` to any command to bypass the selection for
 ### Scoped Sync
 
 ```bash
-# Sync only repos under the current directory (default)
+# Sync only repos under the current directory
 /multi-repo-sync --scope subtree
 
-# Sync entire workspace
+# Sync entire workspace (default)
 /multi-repo-sync --scope workspace
 ```
 

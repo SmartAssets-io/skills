@@ -11,7 +11,7 @@
 # Options:
 #   --dry-run           Preview all changes without modifying files
 #   --yes, -y           Auto-apply all changes without prompting
-#   --scope [workspace|subtree]  Scan scope (default: subtree, i.e. cwd downward)
+#   --scope [workspace|subtree]  Scan scope (default: workspace)
 #   --verbose           Show detailed output per repo
 #   --strict[=BRANCH]   Enforce branch consistency (default branch: dev)
 #   --no-color          Disable colored output
@@ -47,7 +47,7 @@ EXIT_HARMONIZE_FAIL=5
 # Options
 DRY_RUN=false
 AUTO_YES=false
-SCOPE="subtree"
+SCOPE="workspace"
 VERBOSE=false
 STRICT=false
 STRICT_BRANCH=""
@@ -105,7 +105,7 @@ with branch consistency enforcement.
 Options:
   --dry-run             Preview all changes without modifying files
   --yes, -y             Auto-apply all changes without prompting
-  --scope [workspace|subtree]  Scan scope (default: subtree, i.e. cwd downward)
+  --scope [workspace|subtree]  Scan scope (default: workspace)
   --verbose             Show detailed output per repo
   --strict              Enforce all repos on majority branch
   --strict=BRANCH       Enforce all repos on specified branch (e.g., dev)
