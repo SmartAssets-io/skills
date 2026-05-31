@@ -96,7 +96,7 @@ These dirs are normally dropped by the leaf-only and remote filters, but harmoni
 
 | Processed for umbrellas | Skipped for umbrellas |
 |-------------------------|-----------------------|
-| `CLAUDE.md` (merge-only) | `docs/ToDos.md`, `UserStories.md`, `Backlog.md`, `CompletedTasks.md` |
+| `CLAUDE.md` (merge-only) | `docs/ToDos.md`, `UserStories.md`, `User-Flows.md`, `Backlog.md`, `CompletedTasks.md` |
 | `AGENTS.md` (derived) | `docs/roadmap.md` |
 | `GEMINI.md` (created) | pre-push hook patching |
 |                       | `signers.jsonc`, Smart Asset scaffolding |
@@ -230,6 +230,7 @@ These files require significant project-specific customization (project context,
 | `GEMINI.md` | Template | Gemini CLI pointer to CLAUDE.md |
 | `docs/ToDos.md` | Template | Task tracking with MR frontmatter |
 | `docs/UserStories.md` | Template | User stories driving feature development |
+| `docs/User-Flows.md` | Template | User interaction flows (journey, steps, interactions, metrics); also created by `/user-flow` |
 | `docs/Backlog.md` | Template | Three-file pattern - backlog |
 | `docs/CompletedTasks.md` | Template | Three-file pattern - completed |
 | `docs/roadmap.md` | Template | Per-repo release plan (see [roadmap-release-normalization-standard](../../docs/common/roadmap-release-normalization-standard.md)); falls back to `ROADMAP.md` at repo root if `docs/` is not used |
@@ -331,7 +332,7 @@ Harmonize detects existing pre-push hooks and injects an `ls-remote` race guard 
 
 ### How It Works
 
-1. Scans for source-controlled pre-push hooks at: `.husky/pre-push`, `.githooks/pre-push`, `hooks/pre-push`, `scripts/hooks/pre-push`, `AItools/hooks/pre-push`
+1. Scans for source-controlled pre-push hooks at: `.husky/pre-push`, `.githooks/pre-push`, `hooks/pre-push`, `scripts/hooks/pre-push`, `scripts/pre-push`
 2. Only patches hooks that run tests (`pnpm`, `cargo`, `uv run`, `pytest`, etc.)
 3. Skips hooks that already contain an `ls-remote` guard
 4. Injects a POSIX-compatible guard snippet at the appropriate location (after existing guards, before test commands)
@@ -737,6 +738,7 @@ Templates are located in `gitlab-profile/docs/templates/`:
 - `GEMINI.md.template` - Gemini CLI pointer to CLAUDE.md
 - `ToDos.md.template` - Task tracking template (includes `claimed_by` format reference)
 - `UserStories.md.template` - User stories template
+- `User-Flows.md.template` - User interaction flows template (created/maintained by `/user-flow`)
 - `Backlog.md.template` - Backlog template
 - `CompletedTasks.md.template` - Completed tasks template
 - `roadmap.md.template` - Per-repo release plan template (governed by [roadmap-release-normalization-standard](../../docs/common/roadmap-release-normalization-standard.md))

@@ -148,7 +148,7 @@ Phase 3 ADR must cite glossary anchors. The review does not proceed without it.
 
 Use `AskUserQuestion` checkpoints. Each checkpoint is mandatory; the skill
 cannot advance until it is answered. The reference style is the OTLaaS
-`Glossary.md` -- see `AItools/templates/glossary-template.md` for the shape.
+`Glossary.md` -- see `assets/glossary-template.md` for the shape.
 
 **Checkpoint G1 -- Domain scope.** Ask the user to pick the primary domain
 this repo serves (data plane / control plane / protocol / UI / SDK / research
@@ -188,7 +188,7 @@ mapping glossary terms to license definitions. Otherwise skip.
 
 ### Step 0c -- Write or update `docs/Glossary.md`
 
-Write the result using `AItools/templates/glossary-template.md` as the
+Write the result using `assets/glossary-template.md` as the
 structural reference. Stigmergic: this file is now load-bearing for every
 agent that touches the repo.
 
@@ -269,7 +269,7 @@ Write the result to:
 docs/discoveries/architecture-review-<ISO-timestamp>.md
 ```
 
-using `AItools/templates/architecture-review-discovery.md` as the
+using `assets/architecture-review-discovery.md` as the
 structural reference. End the file with a single top recommendation and a
 links section back to the glossary and any reopenable ADRs.
 
@@ -375,7 +375,7 @@ candidate -- draft an ADR to:
 docs/designs/ADR-<NNN>-<slug>.md
 ```
 
-using `AItools/templates/architecture-adr.md` as the structural
+using `assets/architecture-adr.md` as the structural
 reference. The ADR captures: context, decision, consequences, and the
 glossary terms that anchor the reasoning.
 

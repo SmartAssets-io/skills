@@ -350,7 +350,7 @@ can maintain traceability between business needs and tasks**.
 
 ## Files
 
-- **Script**: `AItools/scripts/story-manager.sh`
-- **Library**: `AItools/scripts/lib/story-parser.sh`
+- **Script**: `scripts/story-manager.sh`
+- **Library**: `scripts/lib/story-parser.sh`
 - **Stories**: `docs/UserStories.md`
 - **Epics**: `docs/ToDos.md`

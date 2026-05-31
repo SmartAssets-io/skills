@@ -126,7 +126,7 @@ When initializing a new repository:
 ```yaml
 initialized_at: 2025-01-15T10:00:00Z
 schema_version: "1.0"
-source_schema: "AItools/schemas/smart-asset-elements.yaml"
+source_schema: "assets/smart-asset-elements.yaml"
 last_sync: 2025-01-15T10:00:00Z
 ```
 
@@ -259,7 +259,7 @@ The command will prompt for:
 
 ### 3. SAElement Selection
 
-Elements are presented from the master schema (`AItools/schemas/smart-asset-elements.yaml`):
+Elements are presented from the master schema (`assets/smart-asset-elements.yaml`):
 
 **Treasury Elements:**
 - `TradTreasury` - Multi-sig value storage vault
@@ -631,7 +631,7 @@ ls docs/SmartAssetSpec/*.md 2>/dev/null | grep -v README.md
    ```yaml
    initialized_at: <current_timestamp>
    schema_version: "1.0"
-   source_schema: "AItools/schemas/smart-asset-elements.yaml"
+   source_schema: "assets/smart-asset-elements.yaml"
    last_sync: <current_timestamp>
    ```
 
@@ -653,7 +653,7 @@ ls docs/SmartAssetSpec/*.md 2>/dev/null | grep -v README.md
 ### Step 6: Select Template and Elements
 
 - Present simple/medium/complex options
-- Read `AItools/schemas/smart-asset-elements.yaml`
+- Read `assets/smart-asset-elements.yaml`
 - Present categorized element list
 - Allow multiple selections
 - Support custom element paths
@@ -675,7 +675,7 @@ ls docs/SmartAssetSpec/*.md 2>/dev/null | grep -v README.md
 
 2. **Load Schema Versions**
    - Read local marker file for `schema_version` and `last_sync`
-   - Read master schema from `AItools/schemas/smart-asset-elements.yaml`
+   - Read master schema from `assets/smart-asset-elements.yaml`
 
 3. **Compare Schemas**
    - Identify new elements in master
@@ -713,7 +713,7 @@ ls docs/SmartAssetSpec/*.md 2>/dev/null | grep -v README.md
 
 The element definitions are maintained in:
 ```
-AItools/schemas/smart-asset-elements.yaml
+assets/smart-asset-elements.yaml
 ```
 
 This file contains:

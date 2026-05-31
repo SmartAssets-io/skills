@@ -123,7 +123,7 @@ suggested_skills:
 ```
 
 Body sections follow the template at
-`AItools/templates/handoff-document.md`: Current State, Key Artifacts
+`assets/handoff-document.md`: Current State, Key Artifacts
 (paths and URLs only), Next-Agent Focus, Suggested Skills, Open
 Questions, Redaction Notes.
 

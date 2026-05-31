@@ -1,0 +1,35 @@
+{
+  // cbc-critical-patterns.jsonc - heuristics for proposing CbC-mandatory tags.
+  //
+  // Consumed by AItools/scripts/cbc-identify-critical.sh (backs
+  // /review:identify-critical). A file becomes a CANDIDATE only if it matches a
+  // rule below (risk > 0); git churn and file size then refine the proposed
+  // cbc-weight. The scanner only PROPOSES .gitattributes lines - a human
+  // ratifies and commits them. See docs/designs/cbc-skill.md.
+  //
+  // Rules are matched structurally (no slash-star globs) so JSONC comment
+  // stripping stays safe:
+  //   type "ext"  -> file extension equals `match`        (e.g. move, sol)
+  //   type "dir"  -> some path segment equals `match`      (e.g. consensus)
+  //   type "name" -> basename contains `match`             (e.g. keys)
+  // `risk` (1-3) seeds the score.
+  "rules": [
+    { "type": "ext",  "match": "move",      "risk": 3, "reason": "Move smart contract" },
+    { "type": "ext",  "match": "sol",       "risk": 3, "reason": "Solidity smart contract" },
+    { "type": "dir",  "match": "contracts", "risk": 3, "reason": "smart-contract code" },
+    { "type": "dir",  "match": "consensus", "risk": 3, "reason": "consensus / safety-critical" },
+    { "type": "dir",  "match": "crypto",    "risk": 3, "reason": "cryptography" },
+    { "type": "dir",  "match": "auth",      "risk": 2, "reason": "authentication / authorization" },
+    { "type": "dir",  "match": "payments",  "risk": 2, "reason": "payment handling" },
+    { "type": "name", "match": "keystore",  "risk": 2, "reason": "key material" }
+  ],
+
+  // Score = risk + churn_bonus + size_bonus.
+  // churn = number of commits touching the file; size = lines of code.
+  // A metric adds +2 at its "high" tier, +1 at its "mid" tier, else +0.
+  "churn": { "high": 10, "mid": 4 },
+  "size":  { "high": 400, "mid": 150 },
+
+  // Score -> proposed cbc-weight.
+  "weight": { "high": 5, "medium": 3 }
+}

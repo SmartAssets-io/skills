@@ -327,8 +327,8 @@ This spec is the handoff artifact for whoever writes the integration tests durin
 ## Files
 
 - **Command**: `AItools/commands/user-flow.md`
-- **Driver**: `AItools/scripts/user-flow-manager.sh`
-- **Library**: `AItools/scripts/lib/user-flow-parser.sh`
+- **Driver**: `scripts/user-flow-manager.sh`
+- **Library**: `scripts/lib/user-flow-parser.sh`
 - **Flows**: `docs/User-Flows.md`
 - **Stories**: `docs/UserStories.md`
 - **Epics**: `docs/ToDos.md`
