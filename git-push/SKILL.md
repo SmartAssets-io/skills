@@ -21,12 +21,13 @@ Repo selection: Honors .multi-repo-selection.jsonc if present. MULTI_REPO_ALL=tr
 
 You are helping the user push git commits across multiple repositories.
 
-**Claude Config Modes**: This command works in both claude configurations:
+**Harness modes**: This command works across Claude Code and Pi surfaces:
 
 | Config | Command | Behavior |
 |--------|---------|----------|
-| `~/.claude` | `claude` / `claude-safe` | Restrictive hooks block direct `git push`. Use `agentic-git-commit-push.sh --push-only` script |
+| `~/.claude` | `claude` / `claude-safe` | Restrictive hooks block direct `git push`. Use `git-push.sh`, which delegates to the push-only script |
 | `~/.claude-agentic` | `claude-agentic` | No restrictive hooks. Can use direct git push OR the script |
+| Pi | `pi` | Invoke as `/skill:git-push` or `/git-push`. Pi does not load Claude Code hooks, so rely on explicit invocation and review script actions before approving them. |
 
 **Repo selection**: In multi-repo mode, if a `.multi-repo-selection.jsonc` config exists in the workspace root (created by `/multi-repo-sync --wizard`), operations will be scoped to the selected repos. Set `MULTI_REPO_ALL=true` to bypass.
 
@@ -39,12 +40,13 @@ You are helping the user push git commits across multiple repositories.
 
 ## Using the Push Script
 
-In safe mode (`~/.claude`), always use the agentic script to bypass restrictive hooks:
+Use the canonical git push wrapper:
 
 ```bash
-# Push using the agentic script
-scripts/agentic-git-commit-push.sh --push-only
+scripts/git-push.sh
 ```
+
+`git-push.sh` delegates to `agentic-git-commit-push.sh --push-only`, which remains available as the legacy implementation path for recursive push behavior.
 
 The script will:
 - Display a summary with commit counts
@@ -476,7 +478,7 @@ Assistant: [pushes 3 repos on master branch]
 This command integrates with existing SA multi-repo infrastructure:
 
 1. **Config-aware execution**:
-   - **Safe mode** (`~/.claude`): Uses `agentic-git-commit-push.sh --push-only` script to bypass restrictive hooks
+   - **Safe mode** (`~/.claude`): Uses `git-push.sh`, which delegates to `agentic-git-commit-push.sh --push-only`, to bypass restrictive hooks
    - **Agentic mode** (`~/.claude-agentic`): Can use direct git commands or the script
 2. **Intelligent scope detection**: Auto-detects nested git repositories in subdirectories (even if gitignored) and switches to multi-repo mode automatically
 3. **Workspace consistency check**: Uses `check-repo-consistency.sh` to detect branch and worktree mismatches, warns user and asks for confirmation before operating on inconsistent repos
@@ -486,4 +488,4 @@ This command integrates with existing SA multi-repo infrastructure:
 7. **MR readiness**: Checks docs/ToDos.md after push and prompts for MR creation
 8. **Graceful failures**: Continues with other repos if one fails, reports all errors
 
-**Note**: Use `/quick-commit` first to create commits, then `/recursive-push` to push them.
+**Note**: Use `/git:commit` first to create commits, then `/git:push` to push them. `/quick-commit` and `/recursive-push` remain legacy aliases.

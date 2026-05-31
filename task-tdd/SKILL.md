@@ -156,7 +156,7 @@ implementation hidden behind it). Captured as `deep_module: true` on
 matching behaviors. Drives the Refactor pass's deepening heuristic.
 
 The skill writes the plan to `docs/tdd-plans/<scope>-<ISO-ts>.md` using
-`AItools/templates/tdd-plan.md` as the structural reference.
+`assets/tdd-plan.md` as the structural reference.
 
 ## Phase 2 -- Tracer Bullet (first cycle only)
 
@@ -279,7 +279,7 @@ acceptance criteria, or override and continue.
 ## Plan File Format
 
 Plans live at `docs/tdd-plans/<scope>-<ISO-ts>.md`. See
-`AItools/templates/tdd-plan.md` for the structural reference. Frontmatter:
+`assets/tdd-plan.md` for the structural reference. Frontmatter:
 
 ```yaml
 ---

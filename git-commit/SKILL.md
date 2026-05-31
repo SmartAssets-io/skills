@@ -27,14 +27,18 @@ Repo selection: Honors .multi-repo-selection.jsonc if present. MULTI_REPO_ALL=tr
 
 ## Invocation Guard
 
-This skill requires explicit user invocation via `/quick-commit`. It must not be triggered proactively by the assistant after completing code changes, passing tests, or finishing tasks.
+This skill requires explicit user invocation. It must not be triggered proactively by the assistant after completing code changes, passing tests, or finishing tasks.
+
+**Accepted invocations:**
+- Claude/legacy surfaces: `/quick-commit` or `/git:commit`
+- Pi: `/skill:git-commit` or `/git-commit`
 
 **Expected workflow:**
 1. Assistant completes work and informs the user
 2. Assistant waits for user input
-3. User types `/quick-commit` to trigger this skill
+3. User explicitly invokes one of the accepted commit commands
 
-**Validation:** This skill should only proceed when `<command-name>/quick-commit</command-name>` is present in the current user message.
+**Validation:** This skill should only proceed when the current user message contains an accepted commit invocation, such as `<command-name>/quick-commit</command-name>`, `<command-name>/git:commit</command-name>`, `<command-name>/skill:git-commit</command-name>`, or `<command-name>/git-commit</command-name>`.
 
 ---
 
@@ -44,20 +48,21 @@ You are helping the user create git commits (single-repo or multi-repo mode).
 
 | Config | Command | Behavior |
 |--------|---------|----------|
-| `~/.claude` | `claude` / `claude-safe` | Restrictive hooks block direct git commands. Use this `/quick-commit` command for commits (requires user permission approval) |
+| `~/.claude` | `claude` / `claude-safe` | Restrictive hooks block direct git commands. Use `/quick-commit` or `/git:commit` for commits (requires user permission approval) |
 | `~/.claude-agentic` | `claude-agentic` | No restrictive hooks. Direct git commands allowed, but this command still provides intelligent commit messages |
+| Pi | `pi` | Invoke as `/skill:git-commit` or `/git-commit`. Pi does not load Claude Code hooks, so rely on explicit invocation and review script actions before approving them. |
 
 **Repo selection**: In multi-repo mode, if a `.multi-repo-selection.jsonc` config exists in the workspace root (created by `/multi-repo-sync --wizard`), discovery will only show repos matching the selection. Set `MULTI_REPO_ALL=true` to bypass.
 
 **Auto-detection for multi-repo**: This command uses deterministic mode detection via the `--detect-mode` flag:
-1. Call `quick-commit.sh --detect-mode` first (returns JSON with mode decision)
+1. Call `git-commit.sh --detect-mode` first (returns JSON with mode decision)
 2. The script checks `MULTI_REPO` environment variable (`true` forces multi-repo, `false` forces single-repo)
 3. If not set, the script searches for nested `.git` directories from current directory downward
 4. Returns `"single-repo"` or `"multi-repo"` - Claude uses this to decide workflow
 5. **Claude NEVER runs bash commands to detect mode** - the script handles it deterministically
 
 **CWD-only / single-repo override**: When the user requests committing only in the current working directory (e.g., `/quick-commit - only current directory`), use `--single-repo` to bypass multi-repo auto-detection:
-- Pass `--single-repo` as the first argument: `quick-commit.sh --single-repo "message"`
+- Pass `--single-repo` as the first argument: `git-commit.sh --single-repo "message"`
 - This forces single-repo mode regardless of nested repositories
 - Only tracked changes in the CWD's git repository are committed
 - **Skip `--detect-mode`** when using `--single-repo` - mode is already determined
@@ -83,9 +88,11 @@ This ensures Claude cannot proactively commit without the user invoking `/quick-
 
 **This command uses a deterministic bash script for git commit operations:**
 
+```bash
+scripts/git-commit.sh
 ```
-scripts/quick-commit.sh
-```
+
+`git-commit.sh` is the canonical entrypoint. It delegates to `quick-commit.sh`, which remains available as the legacy compatibility implementation.
 
 **Claude's role**:
 - Analyze diffs and generate intelligent commit messages
@@ -103,13 +110,13 @@ scripts/quick-commit.sh
 
 **If the user requested CWD-only or single-repo commit**: Skip `--detect-mode` entirely. Go straight to the Single-Repo Mode workflow using `--single-repo`:
 ```bash
-scripts/quick-commit.sh --single-repo "commit message"
+scripts/git-commit.sh --single-repo "commit message"
 ```
 
 **Otherwise**, call the script's `--detect-mode` flag:
 
 ```bash
-scripts/quick-commit.sh --detect-mode
+scripts/git-commit.sh --detect-mode
 ```
 
 This returns JSON:
@@ -169,7 +176,7 @@ Mark whichever option matches `recommended_default` from the --detect-mode JSON 
 - Otherwise → recommend single-repo (origins all match — the nested `.git` dirs are likely subtree clones of the same repo, not independent units)
 
 **Apply the user's choice:**
-- "Single-repo" → run `quick-commit.sh --single-repo "message"` (skip Multi-Repo Mode entirely)
+- "Single-repo" → run `git-commit.sh --single-repo "message"` (skip Multi-Repo Mode entirely)
 - "Multi-repo" → set `MULTI_REPO=true` and follow Multi-Repo Mode below; the discover output will include the cwd as a `is_start_directory: true` entry
 
 ---
@@ -345,10 +352,10 @@ Run the bash script with the commit message:
 
 ```bash
 # If --detect-mode returned single-repo (or no nested repos):
-scripts/quick-commit.sh "your commit message here"
+scripts/git-commit.sh "your commit message here"
 
 # If user requested CWD-only in a multi-repo workspace:
-scripts/quick-commit.sh --single-repo "your commit message here"
+scripts/git-commit.sh --single-repo "your commit message here"
 ```
 
 **Note**: In safe mode, the hook will prompt: "Claude wants to run quick-commit.sh. ONLY ALLOW if YOU typed /quick-commit. DENY if you did not request a commit." The user must approve.
@@ -361,7 +368,7 @@ The script will:
 
 ### Step 5: Inform user
 
-Tell the user they can push with `git push` (single-repo) or `/recursive-push` (multi-repo) when ready.
+Tell the user they can push with `git push` (single-repo), `/git:push` (canonical Smart Assets workflow), or `/recursive-push` (legacy alias) when ready.
 
 ---
 
@@ -374,7 +381,7 @@ Tell the user they can push with `git push` (single-repo) or `/recursive-push` (
 Run the script in discovery mode (use the mode from --detect-mode to set MULTI_REPO if needed):
 
 ```bash
-MULTI_REPO=true scripts/quick-commit.sh --discover
+MULTI_REPO=true scripts/git-commit.sh --discover
 ```
 
 This returns JSON with:
@@ -410,7 +417,7 @@ Options:
 ```
 
 - "Proceed with filtered set" → continue with the existing discover output.
-- "Override and include all" → re-run `MULTI_REPO=true MULTI_REPO_ALL=true quick-commit.sh --discover` and use that output instead.
+- "Override and include all" → re-run `MULTI_REPO=true MULTI_REPO_ALL=true git-commit.sh --discover` and use that output instead.
 
 If no repositories have changes, inform user and STOP.
 
@@ -458,7 +465,7 @@ If user does not approve, exit without committing.
 Run the script in execute mode with all repo:message pairs:
 
 ```bash
-MULTI_REPO=true scripts/quick-commit.sh --execute \
+MULTI_REPO=true scripts/git-commit.sh --execute \
   "repo/path:commit message one" \
   "another/repo:commit message two"
 ```
@@ -638,7 +645,7 @@ Claude: [for each repo: analyzes diffs, generates messages]
 
 - **No changes**: "No changes detected. Nothing to commit."
 - **Branch inconsistency**: Warn user and ask for confirmation before committing to repos on different branches
-- **Script not found**: Check `scripts/quick-commit.sh` exists and is executable
+- **Script not found**: Check `scripts/git-commit.sh` exists and is executable
 - **Permission denied**: In claude-safe mode, user must approve running the script
 - **Commit fails**: Script continues with other repos, reports failures
 - **User cancels**: Exit gracefully with no commits
@@ -649,14 +656,14 @@ Claude: [for each repo: analyzes diffs, generates messages]
 
 ```bash
 # Single-repo mode (auto-detected or natural single-repo)
-scripts/quick-commit.sh "commit message"
+scripts/git-commit.sh "commit message"
 
 # Single-repo mode (forced, bypasses multi-repo auto-detection)
-scripts/quick-commit.sh --single-repo "commit message"
+scripts/git-commit.sh --single-repo "commit message"
 
 # Multi-repo mode (MULTI_REPO=true)
-MULTI_REPO=true scripts/quick-commit.sh --discover
-MULTI_REPO=true scripts/quick-commit.sh --execute "repo:msg" ...
+MULTI_REPO=true scripts/git-commit.sh --discover
+MULTI_REPO=true scripts/git-commit.sh --execute "repo:msg" ...
 ```
 
 ## Safety Architecture

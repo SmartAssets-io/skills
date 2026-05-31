@@ -101,6 +101,6 @@ The `completion_gaps:` field captures the canonical gap codes
 ## Files
 
 - **Command**: `AItools/commands/task-complete.md`
-- **Driver**: `AItools/scripts/task-complete.sh`
-- **Walker library**: `AItools/scripts/lib/integrity-walker.sh`
+- **Driver**: `scripts/task-complete.sh`
+- **Walker library**: `scripts/lib/integrity-walker.sh`
 - **Targets**: `docs/ToDos.md`, `docs/User-Flows.md`, `docs/UserStories.md`

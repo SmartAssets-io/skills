@@ -1,20 +1,27 @@
 #!/usr/bin/env bash
-# Claude Code Quick Commit Script
+# Legacy Smart Assets Quick Commit implementation
 # Deterministic git commit execution for single-repo and multi-repo modes
 #
-# Mode detection (for Claude to call first):
-#   ~/.claude/scripts/quick-commit.sh --detect-mode           # Returns JSON mode decision
+# Canonical entrypoint:
+#   AItools/scripts/git-commit.sh [OPTIONS] [COMMIT_MESSAGE]
+#
+# This file remains as the legacy implementation behind /quick-commit and for
+# backward compatibility with existing hooks/tests. New docs, skills, and Pi
+# resources should call git-commit.sh, which delegates here.
+#
+# Mode detection:
+#   AItools/scripts/git-commit.sh --detect-mode           # Returns JSON mode decision
 #
 # Single-repo mode (default when no nested repos):
-#   ~/.claude/scripts/quick-commit.sh "commit message"
-#   ~/.claude/scripts/quick-commit.sh  # auto-generates simple message
+#   AItools/scripts/git-commit.sh "commit message"
+#   AItools/scripts/git-commit.sh  # auto-generates simple message
 #
 # Single-repo mode (forced, bypasses auto-detection):
-#   ~/.claude/scripts/quick-commit.sh --single-repo "commit message"
+#   AItools/scripts/git-commit.sh --single-repo "commit message"
 #
 # Multi-repo mode (MULTI_REPO=true):
-#   ~/.claude/scripts/quick-commit.sh --discover              # List repos with changes
-#   ~/.claude/scripts/quick-commit.sh --execute "repo1:msg1" "repo2:msg2"  # Commit with messages
+#   AItools/scripts/git-commit.sh --discover              # List repos with changes
+#   AItools/scripts/git-commit.sh --execute "repo1:msg1" "repo2:msg2"  # Commit with messages
 #
 # Safety features:
 # - NEVER runs git add - only commits tracked modified/deleted files
@@ -66,6 +73,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Source repo-selection library (optional - graceful if missing)
 if [[ -f "$SCRIPT_DIR/lib/repo-selection.sh" ]]; then
     source "$SCRIPT_DIR/lib/repo-selection.sh"
+fi
+
+# Worktree detection is owned by the Mode module (single source of truth).
+if [[ -f "$SCRIPT_DIR/lib/mode.sh" ]]; then
+    source "$SCRIPT_DIR/lib/mode.sh"
 fi
 
 # Encode a kv-list value into the URL-safe subset defined in
@@ -264,15 +276,8 @@ confirm_commit() {
 # Check if in git worktree (YOLO mode)
 # Uses git -C to avoid changing working directory
 is_worktree() {
-    local dir="${1:-.}"
-    if [ -f "$dir/.git" ]; then
-        # .git is a file (not directory) = worktree
-        return 0
-    elif git -C "$dir" rev-parse --git-dir 2>/dev/null | grep -q '/worktrees/'; then
-        # git-dir contains /worktrees/ = worktree
-        return 0
-    fi
-    return 1
+    # Delegates to the Mode module (single source of truth).
+    mode_is_worktree "${1:-.}"
 }
 
 # Check .sh file permissions in git index
@@ -894,7 +899,7 @@ execute_commits() {
     echo ""
 
     if [ "$success_count" -gt 0 ]; then
-        log_success "Use /recursive-push to push all commits"
+        log_success "Use /git:push to push all commits (or legacy /recursive-push)"
 
         # Clean up dangerous allow rules that Claude Code may have saved
         cleanup_dangerous_allow_rules

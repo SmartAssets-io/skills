@@ -1,17 +1,26 @@
 #!/usr/bin/env bash
-# Agentic Git Commit and Push Script
-# This script commits and pushes changes in all repositories with modifications
+# Legacy Smart Assets Agentic Git Commit and Push implementation
+# This script commits and pushes changes in all repositories with modifications.
+#
+# Canonical push entrypoint:
+#   AItools/scripts/git-push.sh
+#
+# This file remains as the legacy implementation behind recursive push behavior
+# and for backward compatibility with existing hooks/tests. New docs, skills,
+# and Pi resources should call git-push.sh, which delegates here with
+# --push-only.
 #
 # Usage:
 #   agentic-git-commit-push.sh [OPTIONS] [COMMIT_MESSAGE]
 #
 # Options:
 #   --push-only    Skip add/commit, only push existing unpushed commits
-#                  Used by /recursive-push
+#                  Used by canonical /git:push and legacy /recursive-push
 #
 # Examples:
 #   agentic-git-commit-push.sh "feat: add new feature"     # Full add+commit+push
-#   agentic-git-commit-push.sh --push-only                 # Push only (for /recursive-push)
+#   AItools/scripts/git-push.sh                            # Canonical push-only wrapper
+#   agentic-git-commit-push.sh --push-only                 # Legacy implementation path
 
 set -euo pipefail
 
