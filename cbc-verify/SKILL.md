@@ -45,10 +45,15 @@ this skill after claims/specifications exist and tagged artifacts need discharge
 ```bash
 "scripts/cbc.sh" verify src/consensus/vote.rs \
   --adapter agentic --claim docs/claims/vote-safety.md
+
+"scripts/cbc.sh" verify specs/invariant.smt2 \
+  --adapter embedded --prover z3 --claim docs/claims/invariant.md
 ```
 
 Runs the selected adapter and writes a Markdown evidence record under
-`docs/cbc-evidence/`.
+`docs/cbc-evidence/`. With `--adapter embedded --prover dafny|z3`, CbC prefers
+the optional `pi-formal-verify` CLI and links its backend JSON evidence from
+`docs/cbc-evidence/formal/`.
 
 ### status
 
@@ -77,6 +82,22 @@ Checks that every in-scope `cbc=mandatory` artifact has `discharged` or
 
 Records an explicit waiver with rationale. Waivers satisfy the gate but remain
 visible in the ledger.
+
+## Formal verifier bridge
+
+Install `pi-formal-verify` with Smart Assets Pi setup when you want direct Pi
+formal-verification tools and the CbC embedded Dafny/Z3 bridge:
+
+```bash
+"scripts/setup-pi.sh" --local --with-formal-verify
+# or:
+"scripts/setup-pi.sh" --local --formal-verify /path/to/pi-formal-verify
+```
+
+The embedded adapter searches `PI_FORMAL_VERIFY_CLI`, `PI_FORMAL_VERIFY_PATH`,
+then `pi-formal-verify` on PATH, then the current git root and standard sibling
+workspace paths. A `discharged` backend status satisfies the CbC gate;
+`refuted`, `unknown`, and `tool_error` do not.
 
 ## Safety
 
