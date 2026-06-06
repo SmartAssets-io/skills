@@ -35,7 +35,7 @@ cbc_verify() {
     # shellcheck source=/dev/null
     source "$adapter_file"
 
-    if ! CBC_ARTIFACT_HINT="$artifact" cbc_adapter_available; then
+    if ! cbc_adapter_available; then
         echo "cbc verify: adapter '$adapter' unavailable (missing toolchain/keys); nothing recorded" >&2
         return 3
     fi
