@@ -15,7 +15,7 @@ If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this syn
 Subcommands:
   identify  [--scope diff|epic EID|flow FID]
                           List CbC-mandatory files in scope (default: working diff).
-  verify    <artifact> [--adapter mock|agentic|embedded] [--claim PATH] [--prover NAME]
+  verify    <artifact> [--adapter agentic|embedded] [--claim PATH] [--prover NAME]
                           Run the verifier adapter to discharge the artifact's
                           claim; write an evidence record to docs/cbc-evidence/.
   discharge [--scope diff|epic EID|flow FID] [--strict] [--json]
@@ -122,16 +122,12 @@ record. The adapter is pluggable; selection is variant-agnostic.
 # Embedded (smart contracts): prover consumes requires/ensures in the source
 "scripts/cbc.sh" verify contracts/escrow.move \
     --adapter embedded --prover move
-
-# Embedded via pi-formal-verify: Dafny/Z3 evidence is captured as JSON and linked
-"scripts/cbc.sh" verify specs/invariant.smt2 \
-    --adapter embedded --prover z3 --claim docs/claims/invariant.md
 ```
 
 | Adapter | Use | Reference tools |
 |---------|-----|-----------------|
 | `agentic` | Default. LLM proposes, verifier discharges; counterexamples loop back | ProofWright, Lean Copilot (+ `lib/llm-client.sh`) |
-| `embedded` | Smart contracts / systems code with embedded `requires`/`ensures`; Dafny/Z3 runs prefer `pi-formal-verify` for JSON evidence | Move Prover, Verus, Dafny, Z3, `pi-formal-verify` |
+| `embedded` | Smart contracts / systems code with embedded `requires`/`ensures` | Move Prover, Verus, Dafny |
 
 ### discharge
 
@@ -166,9 +162,7 @@ Show the ledger record for an artifact, or a summary across `docs/cbc-evidence/`
 ## Evidence records
 
 One Markdown file per artifact under `docs/cbc-evidence/`, with an embedded
-machine-readable JSON block. When the embedded adapter uses `pi-formal-verify`
-for Dafny or Z3, it also writes backend evidence JSON under
-`docs/cbc-evidence/formal/` and links it from the Markdown ledger record.
+machine-readable JSON block:
 
 ```json
 {
@@ -189,9 +183,9 @@ for Dafny or Z3, it also writes backend evidence JSON under
 | Option | Description |
 |--------|-------------|
 | `--scope diff\|epic EID\|flow FID` | Selection scope (default: working diff) |
-| `--adapter mock\|agentic\|embedded` | Verifier adapter (default: `agentic`; `mock` is test-only) |
+| `--adapter agentic\|embedded` | Verifier adapter (default: `agentic`) |
 | `--claim PATH` | Claim/specification file for `verify` |
-| `--prover NAME` | Embedded-adapter prover (e.g. `move`, `verus`, `dafny`, `z3`, `pi-formal-verify`) |
+| `--prover NAME` | Embedded-adapter prover (e.g. `move`, `verus`, `dafny`) |
 | `--reason TEXT` | Waiver rationale (required for `waive`) |
 | `--strict` | `discharge` exits non-zero on any gap |
 | `--json` | Machine-readable output |
@@ -215,21 +209,6 @@ for Dafny or Z3, it also writes backend evidence JSON under
 | `NO_COLOR` | Disable colored output |
 | `CBC_EVIDENCE_DIR` | Override default `docs/cbc-evidence/` path |
 | `CBC_ADAPTER` | Default adapter when `--adapter` is omitted |
-| `CBC_PROVER` | Embedded adapter prover when `--prover` is omitted (`move`, `verus`, `dafny`, `z3`, or `pi-formal-verify`) |
-| `PI_FORMAL_VERIFY_CLI` | Optional absolute path to the `pi-formal-verify` CLI |
-| `PI_FORMAL_VERIFY_PATH` | Optional path to a `pi-formal-verify` checkout; otherwise CbC searches PATH, the current git root, and the standard sibling workspace location |
-
-## Formal verification bridge
-
-Install the sibling `pi-formal-verify` Pi package during Smart Assets Pi setup for Dafny/Z3 tools and formal evidence generation:
-
-```bash
-scripts/setup-pi.sh --local --with-formal-verify
-# or:
-scripts/setup-pi.sh --local --formal-verify /path/to/pi-formal-verify
-```
-
-When `CBC_PROVER=dafny`, `CBC_PROVER=z3`, or `--prover dafny|z3` is used with `--adapter embedded`, CbC prefers the `pi-formal-verify` CLI. It searches `PI_FORMAL_VERIFY_CLI`, `PI_FORMAL_VERIFY_PATH`, PATH, and the standard sibling workspace layout. It writes formal JSON evidence under `docs/cbc-evidence/formal/` and references that file from the CbC ledger record. A `discharged` formal status satisfies the CbC gate; `refuted`, `unknown`, or `tool_error` remain not discharged.
 
 ## Related Commands
 
@@ -240,7 +219,6 @@ When `CBC_PROVER=dafny`, `CBC_PROVER=z3`, or `--prover dafny|z3` is used with `-
 - `/code-review` — correctness-bug review of the current diff (runs before the gate)
 - `/task-complete` — consults the discharge gate (`undischarged_cbc_claim`)
 - `/spec:flow` — FLOW-009 is the flow this skill implements
-- `/skill:formal-verify` — provided by the optional `pi-formal-verify` Pi package for direct Dafny/Z3 checks
 
 ## Files
 
