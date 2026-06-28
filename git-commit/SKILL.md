@@ -13,7 +13,10 @@ allowed-tools:
 If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this synopsis and stop. Do NOT run any scripts or proceed with the command.
 
 ```
-/git:commit [OPTIONS] [message]
+/git-commit [OPTIONS] [message]
+/skill:git-commit [OPTIONS] [message]
+/git:commit [OPTIONS] [message]      # legacy alias
+/quick-commit [OPTIONS] [message]    # legacy alias
 
 Options:
   --single-repo         Commit only in current directory (skip multi-repo detection)
@@ -31,14 +34,28 @@ This skill requires explicit user invocation. It must not be triggered proactive
 
 **Accepted invocations:**
 - Claude/legacy surfaces: `/quick-commit` or `/git:commit`
-- Pi: `/skill:git-commit` or `/git-commit`
+- Pi slash commands: `/skill:git-commit`, `/git-commit`, or `/skill:quick-commit`
+- Pi selected-skill payloads: `<skill name="git-commit" ...>` or
+  `<skill name="quick-commit" ...>` injected by the harness for this turn
 
 **Expected workflow:**
 1. Assistant completes work and informs the user
 2. Assistant waits for user input
-3. User explicitly invokes one of the accepted commit commands
+3. User explicitly invokes one of the accepted commit commands, or the harness
+   injects this selected skill payload as the user's command for the turn
 
-**Validation:** This skill should only proceed when the current user message contains an accepted commit invocation, such as `<command-name>/quick-commit</command-name>`, `<command-name>/git:commit</command-name>`, `<command-name>/skill:git-commit</command-name>`, or `<command-name>/git-commit</command-name>`.
+**Validation:** Proceed when either condition is true:
+- the current user message contains an accepted commit command, such as
+  `<command-name>/quick-commit</command-name>`,
+  `<command-name>/git:commit</command-name>`,
+  `<command-name>/skill:git-commit</command-name>`, or
+  `<command-name>/git-commit</command-name>`; or
+- Pi has injected the selected skill payload for this turn, visible as
+  `<skill name="git-commit" ...>` or `<skill name="quick-commit" ...>`.
+
+Do not require the literal slash command in addition to a Pi selected-skill
+payload. Do not proceed from ordinary prose such as "please commit" unless one
+of the accepted command or selected-skill signals above is present.
 
 ---
 
@@ -91,6 +108,11 @@ This ensures Claude cannot proactively commit without the user invoking `/quick-
 ```bash
 scripts/git-commit.sh
 ```
+
+Resolve the commit script relative to this skill/command's own location, not
+relative to the target repository being committed. In Pi the script is bundled
+under this generated skill directory (the sibling `scripts/git-commit.sh`); in
+Claude it resolves via `$SA_GITLAB_PROFILE`.
 
 `git-commit.sh` is the canonical entrypoint. It delegates to `quick-commit.sh`, which remains available as the legacy compatibility implementation.
 
@@ -188,6 +210,11 @@ Mark whichever option matches `recommended_default` from the --detect-mode JSON 
 3. **ALWAYS use the bash script** - it handles formatting, hooks, and retries
 4. **Always diff ALL files** before generating commit messages - do not rely on session memory
 5. **NEVER offer to `git add` a directory that contains its own `.git`** - see Nested Untracked Git Repos below. Adding such a path creates an unwanted gitlink/submodule reference.
+6. **Mixed staging is valid** - staged additions plus unstaged tracked
+   modifications are a normal commit state. Do not block, ask the user to
+   clean the index, or unstage/restage files just because status is mixed
+   (`A`, `M`, `AM`, `MM`). Analyze the combined `HEAD` diff and let the script
+   commit the staged index plus tracked modifications.
 
 ---
 
@@ -302,9 +329,13 @@ The bash script does **not** auto-fix formatting or lint issues. If the pre-comm
 1. Run `git status --short` to see what files changed
 2. If no changes (no tracked modifications AND no untracked files), inform user and STOP
 3. Check for untracked files with `git ls-files --others --exclude-standard`
-4. Run `git diff` to see the actual content of ALL tracked changes (both staged and unstaged)
+4. Run `git diff HEAD --` to see the actual content of ALL changes that
+   would be committed (staged additions, staged modifications, and unstaged
+   tracked modifications)
    - **DO NOT rely on memory** of what you worked on in the session
    - **DO NOT skip files** - every modified file must be analyzed
+   - Mixed status (`A`, `M`, `AM`, `MM`) is expected and should be handled as
+     one combined commit unless the user asks for a narrower scope
 
 **Important - understand file states:**
 - **Tracked modifications** (` M`, `M `, `MM` in status): Already tracked by git. The script uses `git commit -a` which **automatically includes ALL tracked modifications** - both staged and unstaged. **Do NOT run `git add` or ask the user about these.**
@@ -399,25 +430,25 @@ This returns JSON with:
 "selection": {
   "config_path": "/path/to/.multi-repo-selection.jsonc",
   "config_loaded": true,
-  "excluded_total": 9,
-  "excluded_with_changes": ["SATCHEL/SatchelSmartWallet", "Websites_apps/foo"]
+  "config_updated_at": "2026-02-28T00:00:00Z",
+  "stale": true,
+  "auto_bypassed": true,
+  "stale_reason": "selection config excluded 6 repo(s) with uncommitted changes; config bypassed for this run",
+  "excluded_total": 0,
+  "excluded_with_changes": [],
+  "bypassed_with_changes": ["SATCHEL/SatchelSmartWallet", "Websites_apps/foo"]
 }
 ```
 
-**If `selection.excluded_with_changes` is non-empty**, you MUST surface this to the user before generating commit messages — otherwise the user has no signal that their `.multi-repo-selection.jsonc` config silently filtered out repos that have uncommitted work. Use AskUserQuestion:
+**Stale configs are detected and bypassed automatically — you do NOT prompt about them.** A selection config is "stale" (drift) when it would exclude one or more repos that currently have uncommitted changes. The script detects this during `--discover` and, per policy, does NOT use a stale config: it disables the selection for that run so the `repositories` array already includes every dirty repo. When this happens, `selection.stale` and `selection.auto_bypassed` are both `true`, and `selection.bypassed_with_changes` lists the repos that the stale config would have dropped. `config_updated_at` is surfaced for context only — age does not define staleness.
+
+**If `selection.auto_bypassed` is `true`**, simply inform the user (one line, no AskUserQuestion) that the stale config was bypassed and all repos with changes are included, then continue with the normal flow:
 
 ```
-Question: "N repo(s) excluded by .multi-repo-selection.jsonc have uncommitted changes: <comma-separated list>. How do you want to proceed?"
-
-Header: "Excluded"
-
-Options:
-1. Proceed with filtered set - Commit only the repos selected by the config; leave excluded repos untouched.
-2. Override and include all - Re-run discover with MULTI_REPO_ALL=true to bypass the config for this run.
+Note: .multi-repo-selection.jsonc was stale (it would have excluded N repo(s) with uncommitted changes: <bypassed_with_changes list>). It was bypassed automatically — all repos with changes are included below.
 ```
 
-- "Proceed with filtered set" → continue with the existing discover output.
-- "Override and include all" → re-run `MULTI_REPO=true MULTI_REPO_ALL=true git-commit.sh --discover` and use that output instead.
+The normal `needs_approval` preview (Step 4) remains the confirmation gate before any commit is made; do not add a separate prompt for the bypass. If the user genuinely wants the filtered set honored, they must update or remove `.multi-repo-selection.jsonc` (a stale config is never silently honored).
 
 If no repositories have changes, inform user and STOP.
 
@@ -429,7 +460,7 @@ After discovery, perform the Branch Consistency Check described in the "Branch C
 
 For EACH repository with changes:
 1. Navigate to the repository
-2. Run `git diff` to see ALL changes
+2. Run `git diff HEAD --` to see ALL staged and unstaged tracked changes
 3. Generate an appropriate commit message based on actual diff content
 4. **DO NOT rely on memory** - always read the actual diffs
 

@@ -472,8 +472,13 @@ enrich_template() {
         return 1
     fi
 
-    # Create temporary enriched file
-    enriched_file=$(mktemp "${TMPDIR:-/tmp}/harmonize-enriched-XXXXXX.md")
+    # Create temporary enriched file.
+    # mktemp only substitutes a trailing run of X's portably; BSD/macOS does not
+    # randomize when a suffix follows the X's, producing a literal filename that
+    # collides ("File exists") on the second call. Append .md after creation.
+    enriched_file=$(mktemp "${TMPDIR:-/tmp}/harmonize-enriched-XXXXXX") || return 1
+    mv "$enriched_file" "${enriched_file}.md"
+    enriched_file="${enriched_file}.md"
 
     # Process line by line
     while IFS= read -r line || [[ -n "$line" ]]; do

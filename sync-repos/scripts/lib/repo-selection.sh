@@ -20,6 +20,7 @@ REPO_SELECTION_LOADED=1
 REPO_SELECTION_CONFIG=""       # Path to .multi-repo-selection.jsonc (set by find/load)
 REPO_SELECTION_ROOT=""         # Directory containing the config file (paths are relative to this)
 REPO_SELECTION_MODE=""         # "include" or empty (no config)
+REPO_SELECTION_UPDATED_AT=""   # "updated_at" timestamp from config (informational)
 REPO_SELECTION_GROUPS=()       # Group names from config
 REPO_SELECTION_REPOS=()        # Individual repo paths from config
 REPO_SELECTION_EXCLUDED=()     # Excluded repo paths from config
@@ -119,6 +120,10 @@ print(text)" < "$file"
 load_selection() {
     local workspace_root="${1:-.}"
 
+    # Reset informational state so early-return paths (bypass, no config,
+    # no jq, malformed) leave a clean value; only a successful parse sets it.
+    REPO_SELECTION_UPDATED_AT=""
+
     # Resolve to absolute path
     if [[ -d "$workspace_root" ]]; then
         workspace_root="$(cd "$workspace_root" && pwd)"
@@ -172,6 +177,7 @@ load_selection() {
 
     # Parse config from stripped JSON
     REPO_SELECTION_MODE=$(echo "$json_content" | jq -r '.mode // ""')
+    REPO_SELECTION_UPDATED_AT=$(echo "$json_content" | jq -r '.updated_at // ""')
 
     # Parse groups array
     REPO_SELECTION_GROUPS=()

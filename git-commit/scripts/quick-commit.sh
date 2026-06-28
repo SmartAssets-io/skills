@@ -630,6 +630,47 @@ discover_repos() {
         load_selection "$start_dir"
     fi
 
+    # Stale-config auto-bypass (drift-based). A selection config is "stale"
+    # when it would exclude one or more repos that currently have uncommitted
+    # changes — honoring it would silently drop active work. Per policy we do
+    # NOT use a stale config: detect it here and disable the selection for the
+    # rest of this run so the main pass includes every dirty repo. The bypass
+    # is reported in the selection block (auto_bypassed + bypassed_with_changes)
+    # for transparency; the caller is informed, not prompted. `updated_at` age
+    # is surfaced for context but does not define staleness.
+    local stale_bypassed="false"
+    local stale_config_path=""
+    local stale_config_updated_at=""
+    local stale_bypassed_repos=()
+    if [[ -n "${REPO_SELECTION_CONFIG:-}" ]] && type -t is_repo_selected &>/dev/null; then
+        local sc_git_dir sc_repo_dir sc_rel sc_sel_path
+        while IFS= read -r sc_git_dir; do
+            sc_repo_dir=$(dirname "$sc_git_dir")
+            sc_rel=$(realpath --relative-to="$start_dir" "$sc_repo_dir" 2>/dev/null || echo "$sc_repo_dir")
+            sc_rel="${sc_rel#./}"
+            sc_sel_path="$sc_rel"
+            if [[ -n "${REPO_SELECTION_ROOT:-}" && "$REPO_SELECTION_ROOT" != "$start_dir" ]]; then
+                local sc_abs
+                sc_abs=$(cd "$sc_repo_dir" && pwd)
+                sc_sel_path="${sc_abs#"$REPO_SELECTION_ROOT"/}"
+            fi
+            if ! is_repo_selected "$sc_sel_path"; then
+                if [ -n "$(git -C "$sc_repo_dir" status --porcelain 2>/dev/null)" ]; then
+                    stale_bypassed_repos+=("$sc_rel")
+                fi
+            fi
+        done < <(find . -mindepth 2 -type d -name ".git" -not -path "*/node_modules/*" 2>/dev/null)
+
+        if [ ${#stale_bypassed_repos[@]} -gt 0 ]; then
+            stale_bypassed="true"
+            stale_config_path="$REPO_SELECTION_CONFIG"
+            stale_config_updated_at="${REPO_SELECTION_UPDATED_AT:-}"
+            # Disable the stale config so the main pass below includes all repos.
+            REPO_SELECTION_CONFIG=""
+            REPO_SELECTION_MODE=""
+        fi
+    fi
+
     # Inspect cwd as a potential start-directory repo. Including it
     # explicitly (with is_start_directory: true) prevents the silent-drop
     # bug where a workspace root with tracked changes plus nested repos
@@ -695,15 +736,37 @@ discover_repos() {
     # size of the config's literal exclude list — that interpretation gave
     # zero for include-mode configs even when many repos were filtered, and
     # contradicted the EXCLUDED_WITH_CHANGES count.
+    #
+    # Staleness (drift-based): a config is "stale" when it would exclude one
+    # or more repos that currently have uncommitted changes — i.e. honoring it
+    # would silently drop real work. Per policy a stale config is NOT used: the
+    # pre-scan above already disabled it and recorded the triggering repos in
+    # stale_bypassed_repos, so the repositories array includes every dirty repo.
+    # We report the ORIGINAL config path + updated_at and `auto_bypassed: true`
+    # so the caller is informed (not prompted). The `updated_at` age is context
+    # only and does NOT define staleness.
     local config_loaded="false"
     local config_path=""
-    if [[ -n "${REPO_SELECTION_CONFIG:-}" ]]; then
+    local config_updated_at="${REPO_SELECTION_UPDATED_AT:-}"
+    if [[ "$stale_bypassed" == "true" ]]; then
+        config_loaded="true"
+        config_path="$stale_config_path"
+        config_updated_at="$stale_config_updated_at"
+    elif [[ -n "${REPO_SELECTION_CONFIG:-}" ]]; then
         config_loaded="true"
         config_path="$REPO_SELECTION_CONFIG"
+    fi
+    local stale_reason=""
+    if [[ "$stale_bypassed" == "true" ]]; then
+        stale_reason="selection config excluded ${#stale_bypassed_repos[@]} repo(s) with uncommitted changes; config bypassed for this run"
     fi
     echo '  "selection": {'
     echo '    "config_path": "'"$config_path"'",'
     echo '    "config_loaded": '"$config_loaded"','
+    echo '    "config_updated_at": "'"$config_updated_at"'",'
+    echo '    "stale": '"$stale_bypassed"','
+    echo '    "auto_bypassed": '"$stale_bypassed"','
+    echo '    "stale_reason": "'"$stale_reason"'",'
     echo '    "excluded_total": '"$EXCLUDED_TOTAL_COUNT"','
     echo -n '    "excluded_with_changes": ['
     if [ ${#EXCLUDED_WITH_CHANGES[@]} -gt 0 ]; then
@@ -712,6 +775,16 @@ discover_repos() {
         for p in "${EXCLUDED_WITH_CHANGES[@]}"; do
             echo -n "$sep\"$p\""
             sep=", "
+        done
+    fi
+    echo '],'
+    echo -n '    "bypassed_with_changes": ['
+    if [ ${#stale_bypassed_repos[@]} -gt 0 ]; then
+        local bsep=""
+        local bp
+        for bp in "${stale_bypassed_repos[@]}"; do
+            echo -n "$bsep\"$bp\""
+            bsep=", "
         done
     fi
     echo ']'
