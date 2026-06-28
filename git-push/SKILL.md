@@ -32,6 +32,7 @@ You are helping the user push git commits across multiple repositories.
 **Repo selection**: In multi-repo mode, if a `.multi-repo-selection.jsonc` config exists in the workspace root (created by `/multi-repo-sync --wizard`), operations will be scoped to the selected repos. Set `MULTI_REPO_ALL=true` to bypass.
 
 **Auto-detection for multi-repo**: This command automatically detects the appropriate scope:
+
 1. If `MULTI_REPO=true` is set, uses multi-repo mode
 2. If nested git repositories are detected in subdirectories (even if gitignored), auto-enables multi-repo mode
 3. Otherwise, uses single-repo mode for the current directory only
@@ -49,6 +50,7 @@ scripts/git-push.sh
 `git-push.sh` delegates to `agentic-git-commit-push.sh --push-only`, which remains available as the legacy implementation path for recursive push behavior.
 
 The script will:
+
 - Display a summary with commit counts
 - Handle all repositories with unpushed commits
 - Set upstream branches automatically if needed
@@ -90,6 +92,7 @@ fi
 ## Single-Repo Mode
 
 This mode is used when:
+
 - `MULTI_REPO` is not set AND
 - No nested git repositories are detected in subdirectories
 
@@ -98,6 +101,7 @@ Follow these steps:
 1. **Fetch latest from remote**: Run `git fetch` to ensure we have the latest remote state
 
 2. **Check for upstream**: If the current branch has no upstream tracking branch, inform the user this is a local-only branch and STOP. Show:
+
    ```
    Branch "dev" has no upstream tracking branch configured (local only).
    To push, manually set an upstream:
@@ -238,6 +242,7 @@ Options:
 ```
 
 **Warning message to show (from checker output):**
+
 ```
 Workspace Consistency Warning:
 
@@ -252,11 +257,13 @@ when merging or reviewing changes across the workspace.
 ```
 
 If worktree inconsistency is also detected, include:
+
 ```
 Worktree Warning: Mixed worktree/regular checkouts detected.
 ```
 
 **Apply user's choice:**
+
 - **"Yes, push all"**: Include all repositories in the push
 - **"Skip inconsistent"**: Remove inconsistent repos from `repos_to_push` array
 - **"Other"**: User may specify custom handling
@@ -367,17 +374,17 @@ Failed/Skipped: $failed_count
 
 if [ $success_count -gt 0 ]; then
     echo ""
-    echo "✅ Successfully pushed repositories:"
+    echo "Successfully pushed repositories:"
     echo ""
 
     for repo in "${repos_to_push[@]}"; do
-        echo "  ✓ $repo"
+        echo "  - $repo"
     done
 fi
 
 if [ $failed_count -gt 0 ]; then
     echo ""
-    echo "⚠️  Some repositories failed to push. Check errors above."
+    echo "WARNING: Some repositories failed to push. Check errors above."
 fi
 ```
 
@@ -397,6 +404,7 @@ fi
 ## Examples
 
 **Single-repo mode** (no nested repos detected):
+
 ```
 User: /recursive-push
 Assistant: [checks for nested git repos - none found]
@@ -409,6 +417,7 @@ Assistant: [checks for nested git repos - none found]
 ```
 
 **Multi-repo mode** (MULTI_REPO=true):
+
 ```
 User: /recursive-push
 Assistant: [checks MULTI_REPO=true]
@@ -428,6 +437,7 @@ Assistant: [pushes all 3 repos]
 ```
 
 **Auto-detected multi-repo mode** (nested repos in gitignored subdirectories):
+
 ```
 User: /recursive-push
 (from workspace root which has .git/ but also SA/, FF/, BF/ subdirs with their own .git/)
@@ -441,6 +451,7 @@ Assistant: [checks MULTI_REPO - not set]
 ```
 
 **Multi-repo with branch inconsistency** (repos on different branches):
+
 ```
 User: /recursive-push
 Assistant: [discovers 4 repos with unpushed commits]
