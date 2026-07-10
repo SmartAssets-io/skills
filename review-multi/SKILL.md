@@ -171,7 +171,7 @@ Use only specific providers:
 | `anthropic` | `ANTHROPIC_API_KEY` | Claude Opus |
 | `openai` | `OPENAI_API_KEY` | ChatGPT |
 | `google` | `GOOGLE_API_KEY` | Gemini |
-| `xai` | `XAI_API_KEY` | Grok |
+| `xai` | `XAI_API_KEY` | Grok 4.5 |
 | `bedrock` | `AWS_PROFILE` or `AWS_ACCESS_KEY_ID` or IAM role | Amazon Nova Pro |
 | `ollama` | `OLLAMA_HOST` | Local models |
 
