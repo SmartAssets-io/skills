@@ -196,7 +196,7 @@ _register_default_providers() {
     local xai_key="${XAI_API_KEY:-${GROK_API_KEY:-}}"
     if [[ -n "$xai_key" ]]; then
         PROVIDER_REGISTRY["xai"]="cloud"
-        PROVIDER_REGISTRY["xai_model"]="${XAI_MODEL:-${GROK_MODEL:-grok-4-fast-non-reasoning}}"
+        PROVIDER_REGISTRY["xai_model"]="${XAI_MODEL:-${GROK_MODEL:-grok-4.5}}"
         # Store which key variable is actually set
         if [[ -n "${XAI_API_KEY:-}" ]]; then
             PROVIDER_REGISTRY["xai_key_var"]="XAI_API_KEY"

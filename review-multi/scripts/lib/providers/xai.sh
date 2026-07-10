@@ -8,8 +8,9 @@
 # Environment:
 #   XAI_API_KEY         Required. API key for xAI (or use GROK_API_KEY)
 #   GROK_API_KEY        Required. Alternative to XAI_API_KEY
-#   XAI_MODEL           Optional. Model to use (default: grok-4-fast-non-reasoning)
-#   XAI_MAX_TOKENS      Optional. Max tokens (default: 4096)
+#   XAI_MODEL           Optional. Model to use (default: grok-4.5)
+#   GROK_MODEL          Optional. Alternative to XAI_MODEL
+#   XAI_MAX_TOKENS      Optional. Max tokens (default: 16384)
 #   XAI_ENABLE_TOOLS    Optional. Enable web_search/code_interpreter (default: true)
 #   XAI_DEBUG           Optional. Include debug info in error responses
 #
@@ -27,7 +28,7 @@ XAI_PROVIDER_LOADED=1
 # Configuration
 # xAI Responses API (stateful, server-side tools)
 XAI_API_URL="${XAI_API_URL:-https://api.x.ai/v1/responses}"
-XAI_MODEL="${XAI_MODEL:-grok-4-fast-non-reasoning}"
+XAI_MODEL="${XAI_MODEL:-${GROK_MODEL:-grok-4.5}}"
 XAI_MAX_TOKENS="${XAI_MAX_TOKENS:-16384}"
 XAI_ENABLE_TOOLS="${XAI_ENABLE_TOOLS:-true}"
 
