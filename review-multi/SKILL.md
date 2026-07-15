@@ -166,14 +166,19 @@ Use only specific providers:
 
 ### Available Providers
 
-| Provider | Environment Variable | Model |
-|----------|---------------------|-------|
-| `anthropic` | `ANTHROPIC_API_KEY` | Claude Opus |
-| `openai` | `OPENAI_API_KEY` | ChatGPT |
-| `google` | `GOOGLE_API_KEY` | Gemini |
-| `xai` | `XAI_API_KEY` | Grok 4.5 |
-| `bedrock` | `AWS_PROFILE` or `AWS_ACCESS_KEY_ID` or IAM role | Amazon Nova Pro |
-| `ollama` | `OLLAMA_HOST` | Local models |
+| Provider | Environment Variable | Default Model |
+|----------|---------------------|---------------|
+| `anthropic` | `ANTHROPIC_API_KEY` | Claude Fable 5 — `claude-fable-5` (server-side fallback to `claude-opus-4-8` on safety declines; override via `ANTHROPIC_FALLBACK_MODEL`, empty disables) |
+| `openai` | `OPENAI_API_KEY` | GPT-5.6 Sol — `gpt-5.6-sol` |
+| `google` | `GOOGLE_API_KEY` | Gemini 3.1 Pro — `gemini-3.1-pro-preview` |
+| `xai` | `XAI_API_KEY` | Grok — `grok-4.5` |
+| `bedrock` | `AWS_PROFILE` or `AWS_ACCESS_KEY_ID` or IAM role | Amazon Nova Pro — `us.amazon.nova-pro-v1:0` |
+| `ollama` | `OLLAMA_HOST` | Local models — `codellama:latest` |
+
+Override the default per provider with `ANTHROPIC_MODEL`, `OPENAI_MODEL`,
+`GEMINI_MODEL`, `XAI_MODEL`, `BEDROCK_MODEL`, or `OLLAMA_MODEL`. Review output
+reports the model the API actually served (`model`) alongside the configured
+value (`model_requested`); when they differ, display surfaces show both.
 
 ## Output Modes
 
@@ -212,10 +217,16 @@ The posted review includes:
 **Verdict:** :white_check_mark: Approved (80% agreement)
 
 **Reviewed by:**
-- Claude Opus: Approve (confidence: 0.92)
-- ChatGPT: Approve (confidence: 0.88)
-- Gemini: Approve (confidence: 0.85)
-- Grok: Needs Work (confidence: 0.78)
+
+| Provider | Model | Verdict | Confidence |
+|----------|-------|---------|------------|
+| anthropic | `claude-fable-5` | Approve | 0.92 |
+| openai | `gpt-5.6-sol` | Approve | 0.88 |
+| gemini | `gemini-3.1-pro-002` (requested `gemini-3.1-pro-preview`) | Approve | 0.85 |
+| xai | `grok-4.5` | Needs Work | 0.78 |
+
+The Model cell shows the id the API actually served; when it differs from the
+configured value, the requested alias appears in parentheses.
 
 ---
 
@@ -422,7 +433,7 @@ providers:
   cloud:
     - name: anthropic
       enabled: true
-      model: claude-opus-4-5-20251101
+      model: claude-fable-5
 
 settings:
   consensus_threshold: 0.6
@@ -483,7 +494,7 @@ Or more practically, capture both stdout and stderr from the script output. The 
 - `url` — PR/MR URL
 - `consensus.verdict` — "approve", "provide_feedback", "needs_review", or "needs_work"
 - `consensus.agreement` — 0.0-1.0
-- `providers[]` — array with `.provider`, `.verdict`, `.confidence`, `.summary`
+- `providers[]` — array with `.provider`, `.model` (id the API actually served), `.model_requested` (configured id), `.verdict`, `.confidence`, `.summary`
 - `issues[]` — array with `.severity`, `.file`, `.line`, `.title`, `.reported_by`
 - `issue_stats.by_severity` — `.critical`, `.major`, `.minor`, `.suggestion` counts
 
@@ -499,11 +510,11 @@ After the script completes, parse the JSON summary and display this synopsis:
 
 ### Verdict: APPROVED (75% consensus)
 
-| Provider | Verdict | Confidence |
-|----------|---------|------------|
-| Claude | Approve | 0.92 |
-| ChatGPT | Approve | 0.88 |
-| Gemini | Needs Work | 0.78 |
+| Provider | Model | Verdict | Confidence |
+|----------|-------|---------|------------|
+| anthropic | `claude-fable-5` | Approve | 0.92 |
+| openai | `gpt-5.6-sol` | Approve | 0.88 |
+| gemini | `gemini-3.1-pro-002` (requested `gemini-3.1-pro-preview`) | Needs Work | 0.78 |
 
 ### Issues Found: 1 critical, 2 major, 5 minor
 
@@ -523,6 +534,8 @@ View full review: [MR/PR URL]
 
 **IMPORTANT:** Always include a "Critical & Major Issues" table when there are any critical or major severity issues. This ensures actionable items are visible without reading the full MR comment. If there are no critical or major issues, omit that table.
 
+**Model column:** Populate from `providers[].model` (the id the API actually served), wrapped in backticks. When `providers[].model_requested` differs from `providers[].model`, append `(requested \`<model_requested>\`)` so drift between the configured and served model is visible in the terminal.
+
 ### Error Handling
 
 If the script fails, show the user:
@@ -541,6 +554,8 @@ When using `--json` mode, parse the output to extract:
 
 **Providers:**
 - `providers[].provider`: Provider name (anthropic, openai, gemini, xai, bedrock)
+- `providers[].model`: Model id the API actually served (e.g. `gemini-3.1-pro-002`); falls back to the configured id when the API does not echo one
+- `providers[].model_requested`: Model id that was configured/requested (e.g. `gemini-3.1-pro-preview`)
 - `providers[].verdict`: Individual verdict
 - `providers[].confidence`: 0.0-1.0
 - `providers[].summary`: Brief assessment

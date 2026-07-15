@@ -711,7 +711,7 @@ main() {
     local agreement
     agreement=$(echo "$aggregated" | jq -r '.consensus.agreement')
 
-    log_info "Verdict: $verdict (agreement: $(echo "scale=0; $agreement * 100" | bc)%)"
+    log_info "Verdict: $verdict (agreement: $(awk -v a="$agreement" 'BEGIN { printf "%.0f", a * 100 }')%)"
 
     # Generate markdown output
     local additions deletions

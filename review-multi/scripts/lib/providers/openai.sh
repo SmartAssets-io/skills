@@ -6,8 +6,8 @@
 #
 # Environment:
 #   OPENAI_API_KEY    Required. API key for OpenAI
-#   OPENAI_MODEL      Optional. Model to use (default: gpt-4-turbo)
-#   OPENAI_MAX_TOKENS Optional. Max tokens (default: 4096)
+#   OPENAI_MODEL      Optional. Model to use (default: gpt-5.6-sol)
+#   OPENAI_MAX_TOKENS Optional. Max completion tokens (default: 4096)
 #
 # Usage:
 #   source openai.sh
@@ -22,7 +22,7 @@ OPENAI_PROVIDER_LOADED=1
 
 # Configuration
 OPENAI_API_URL="https://api.openai.com/v1/chat/completions"
-OPENAI_MODEL="${OPENAI_MODEL:-gpt-4-turbo}"
+OPENAI_MODEL="${OPENAI_MODEL:-gpt-5.6-sol}"
 OPENAI_MAX_TOKENS="${OPENAI_MAX_TOKENS:-4096}"
 
 #
@@ -85,12 +85,14 @@ Please provide your review as a JSON object."
     escaped_message=$(printf '%s' "$full_message" | jq -Rs '.')
 
     # Build request body
+    # GPT-5.x reasoning models require max_completion_tokens (max_tokens is
+    # rejected) and only accept the default temperature, so neither legacy
+    # parameter is sent
     local request_body
     request_body=$(cat <<EOF
 {
     "model": "$OPENAI_MODEL",
-    "max_tokens": $OPENAI_MAX_TOKENS,
-    "temperature": 0.3,
+    "max_completion_tokens": $OPENAI_MAX_TOKENS,
     "response_format": { "type": "json_object" },
     "messages": [
         {
@@ -192,7 +194,14 @@ EOF
     fi
 
     # Add model info and return
-    printf '%s' "$content" | jq --arg model "$OPENAI_MODEL" '. + {model: $model}'
+    # Prefer the model the API actually resolved (may differ from the
+    # requested alias); keep the requested value for drift visibility
+    local actual_model
+    actual_model=$(printf '%s' "$response" | jq -r '.model // empty' 2>/dev/null)
+    printf '%s' "$content" | jq \
+        --arg model "${actual_model:-$OPENAI_MODEL}" \
+        --arg requested "$OPENAI_MODEL" \
+        '. + {model: $model, model_requested: $requested}'
 }
 
 #

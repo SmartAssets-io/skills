@@ -306,8 +306,11 @@ EOF
     fi
 
     # Add model info and return
+    # Bedrock invoke-model does not echo a resolved model id in the response
+    # body, so the requested id serves as both model and model_requested
     _bedrock_cleanup
-    printf '%s' "$json_result" | jq --arg model "$BEDROCK_MODEL" '. + {model: $model}'
+    printf '%s' "$json_result" | jq --arg model "$BEDROCK_MODEL" \
+        '. + {model: $model, model_requested: $model}'
 }
 
 #

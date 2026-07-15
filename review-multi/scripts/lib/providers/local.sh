@@ -244,7 +244,14 @@ EOF
     fi
 
     # Add model info and return
-    printf '%s' "$content" | jq --arg model "$OLLAMA_MODEL" '. + {model: $model}'
+    # Prefer the model the API actually resolved; keep the requested value
+    # for drift visibility
+    local actual_model
+    actual_model=$(printf '%s' "$response" | jq -r '.model // empty' 2>/dev/null)
+    printf '%s' "$content" | jq \
+        --arg model "${actual_model:-$OLLAMA_MODEL}" \
+        --arg requested "$OLLAMA_MODEL" \
+        '. + {model: $model, model_requested: $requested}'
 }
 
 #
@@ -385,8 +392,8 @@ EOF
         result="$json_result"
     fi
 
-    # Add model info and return
-    printf '%s' "$result" | jq '. + {model: "cli_agent"}'
+    # Add model info and return (no API-resolved model for a local CLI tool)
+    printf '%s' "$result" | jq '. + {model: "cli_agent", model_requested: "cli_agent"}'
 }
 
 #

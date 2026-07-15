@@ -366,6 +366,19 @@ The guard is inserted after the most appropriate existing construct:
 
 Most SA hooks already have a `git status | grep "Your branch is ahead"` guard. The `ls-remote` guard complements it by catching the race condition where the local tracking ref is stale but the remote already has the commits. Both guards remain in place.
 
+## Markdown Link Check Harmonization
+
+Harmonize propagates the canonical markdown link check (lychee) into repositories that already run CI. The check validates every URL in `./**/*.md` on push and merge request pipelines, and fails the pipeline on broken links. Canonical arguments, acceptance policy, and rationale: [Markdown Link Check Standard](../../docs/common/markdown-link-check-standard.md).
+
+### How It Works
+
+1. **Skips repos without CI** - neither `.gitlab-ci.yml` nor `.github/workflows/` present means the standard does not apply; harmonize never scaffolds CI from scratch.
+2. **Skips repos already checking links** - any mention of `lychee` or a markdown link check job in CI config logs `[OK]` and preserves local customizations (extra `--exclude` patterns, `.lycheeignore`).
+3. **GitLab CI** - appends the canonical `markdown-link-check` job from [`docs/templates/markdown-link-check.gitlab-ci.yml.template`](../../docs/templates/markdown-link-check.gitlab-ci.yml.template) to the existing `.gitlab-ci.yml`. The `stage:` resolves to `test` when the repo declares no `stages:` list or includes `test`; otherwise the first declared stage.
+4. **GitHub Actions** - creates `.github/workflows/markdown-link-check.yml` from [`docs/templates/markdown-link-check.github-workflow.yml.template`](../../docs/templates/markdown-link-check.github-workflow.yml.template).
+
+Both paths honor `--dry-run` and interactive per-file confirmation. Implementation: `scripts/lib/harmonize-ci.sh` (`process_markdown_link_check`).
+
 ## Profile Directory Support
 
 Some repository groups use a dedicated **profile directory** to store Task/Epic/Story files centrally, rather than duplicating them in each repository. This is common for:
@@ -724,9 +737,9 @@ Harmonization ensures these conventions are consistent across all target reposit
 
 | Convention | Source | Propagated Via |
 |-----------|--------|----------------|
-| Implementer Identification | [stigmergic-collaboration.md](../docs/common/stigmergic-collaboration.md#implementer-identification) | `CLAUDE.md.template` claiming section, `ToDos.md.template` field comments |
+| Implementer Identification | [stigmergic-collaboration.md](../../docs/common/stigmergic-collaboration.md#implementer-identification) | `CLAUDE.md.template` claiming section, `ToDos.md.template` field comments |
 | `claimed_by` format | Same as above | `human-{email}`, `{tool}-session[-{id}]`, `{team}/{role}` |
-| Epic task structure | [epic-task-structure.md](../docs/common/epic-task-structure.md) | `ToDos.md.template` YAML structure |
+| Epic task structure | [epic-task-structure.md](../../docs/common/epic-task-structure.md) | `ToDos.md.template` YAML structure |
 | Git config identity | `git config --get user.email` | Human `claimed_by` values derived from git config |
 
 ## Source Templates

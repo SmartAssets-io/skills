@@ -162,7 +162,7 @@ _register_default_providers() {
     # Anthropic (Claude)
     if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
         PROVIDER_REGISTRY["anthropic"]="cloud"
-        PROVIDER_REGISTRY["anthropic_model"]="${ANTHROPIC_MODEL:-claude-opus-4-5-20251101}"
+        PROVIDER_REGISTRY["anthropic_model"]="${ANTHROPIC_MODEL:-claude-fable-5}"
         PROVIDER_REGISTRY["anthropic_key_var"]="ANTHROPIC_API_KEY"
         PROVIDER_REGISTRY["anthropic_enabled"]="true"
         ENABLED_PROVIDERS+=("anthropic")
@@ -171,7 +171,7 @@ _register_default_providers() {
     # OpenAI (ChatGPT)
     if [[ -n "${OPENAI_API_KEY:-}" ]]; then
         PROVIDER_REGISTRY["openai"]="cloud"
-        PROVIDER_REGISTRY["openai_model"]="${OPENAI_MODEL:-gpt-4-turbo}"
+        PROVIDER_REGISTRY["openai_model"]="${OPENAI_MODEL:-gpt-5.6-sol}"
         PROVIDER_REGISTRY["openai_key_var"]="OPENAI_API_KEY"
         PROVIDER_REGISTRY["openai_enabled"]="true"
         ENABLED_PROVIDERS+=("openai")
@@ -181,7 +181,7 @@ _register_default_providers() {
     local gemini_key="${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}"
     if [[ -n "$gemini_key" ]]; then
         PROVIDER_REGISTRY["gemini"]="cloud"
-        PROVIDER_REGISTRY["gemini_model"]="${GEMINI_MODEL:-${GOOGLE_MODEL:-gemini-2.5-pro}}"
+        PROVIDER_REGISTRY["gemini_model"]="${GEMINI_MODEL:-${GOOGLE_MODEL:-gemini-3.1-pro-preview}}"
         # Store which key variable is actually set
         if [[ -n "${GEMINI_API_KEY:-}" ]]; then
             PROVIDER_REGISTRY["gemini_key_var"]="GEMINI_API_KEY"
@@ -368,11 +368,16 @@ parse_review_response() {
     local confidence
     confidence=$(echo "$response" | jq -r '.confidence // 0.5')
 
+    # Fallback model attribution when the provider response omits it: use the
+    # configured registry value rather than "unknown"
+    local registry_model="${PROVIDER_REGISTRY[${provider}_model]:-unknown}"
+
     # Normalize response
-    echo "$response" | jq --arg provider "$provider" --arg verdict "$verdict" --argjson conf "$confidence" '
+    echo "$response" | jq --arg provider "$provider" --arg verdict "$verdict" --argjson conf "$confidence" --arg registry_model "$registry_model" '
         {
             provider: $provider,
-            model: (.model // "unknown"),
+            model: (.model // $registry_model),
+            model_requested: (.model_requested // .model // $registry_model),
             verdict: $verdict,
             confidence: $conf,
             issues: (.issues // []),
@@ -391,6 +396,10 @@ create_error_response() {
     local error_msg="$2"
     local duration="${3:-0}"
     local exit_code="${4:-0}"
+
+    # Attribute the error to the model that was attempted (configured in the
+    # registry) rather than "unknown"
+    local model="${PROVIDER_REGISTRY[${provider}_model]:-unknown}"
 
     # Categorize error type based on exit code and error message
     local verdict="$VERDICT_ERROR_SERVICE"
@@ -419,7 +428,8 @@ create_error_response() {
     cat <<EOF
 {
     "provider": "$provider",
-    "model": "unknown",
+    "model": "$model",
+    "model_requested": "$model",
     "verdict": "$verdict",
     "confidence": 0.0,
     "issues": [],
@@ -443,6 +453,7 @@ create_abstain_response() {
 {
     "provider": "$provider",
     "model": "${PROVIDER_REGISTRY[${provider}_model]:-unknown}",
+    "model_requested": "${PROVIDER_REGISTRY[${provider}_model]:-unknown}",
     "verdict": "$VERDICT_ABSTAIN",
     "confidence": 0.0,
     "issues": [],

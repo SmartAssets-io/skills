@@ -102,7 +102,7 @@ The script displays:
    - `git config --get user.email` → `human-{email}`
    - `git config --get user.name` → fallback if email not set
    - Helps verify which identity will be used when claiming tasks via `/implement` or `/work-tasks`
-   - See [Implementer Identification](../docs/common/stigmergic-collaboration.md#implementer-identification) for the full format reference
+   - See [Implementer Identification](../../docs/common/stigmergic-collaboration.md#implementer-identification) for the full format reference
 
 ---
 
