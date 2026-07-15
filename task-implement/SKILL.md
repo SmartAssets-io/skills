@@ -71,7 +71,7 @@ tasks:
     #   design-sprint/lead          # Agent team lead
 ```
 
-Note: For epic-based tasks, the task is nested within the epic's `tasks:` array. See [Implementer Identification](../docs/common/stigmergic-collaboration.md#implementer-identification) for the full format reference.
+Note: For epic-based tasks, the task is nested within the epic's `tasks:` array. See [Implementer Identification](../../docs/common/stigmergic-collaboration.md#implementer-identification) for the full format reference.
 
 **Agent team members:** After updating `docs/ToDos.md`, notify the orchestrator via `SendMessage` with the task ID and a one-line summary of what you're starting.
 

@@ -83,7 +83,7 @@ Agents coordinate through three complementary mechanisms:
 
 1. **Claude Code Teams**: Built-in `TeamCreate`/`TaskCreate`/`SendMessage` for real-time task assignment and communication.
 2. **Stigmergic Files**: `docs/ToDos.md` for task claiming, `docs/work-logs/` for progress, `docs/discoveries/` for cross-agent signals.
-3. **Handoff Documents**: `docs/handoffs/<from>--<to>--<ts>.md` for compact, structured context transfer at delegation and worker-transition edges. See [Handoff Document Standard](../../../../docs/common/handoff-standard.md).
+3. **Handoff Documents**: `docs/handoffs/<from>--<to>--<ts>.md` for compact, structured context transfer at delegation and worker-transition edges. See [Handoff Document Standard](../../docs/common/handoff-standard.md).
 
 Each agent uses a `claimed_by` identifier following the pattern `{session}/{role}` (e.g., `agent-team/orchestrator`, `agent-team/worker-1`).
 
@@ -93,7 +93,7 @@ Each agent uses a `claimed_by` identifier following the pattern `{session}/{role
 edges. These are **not** user-invoked; they are side effects of the
 orchestrator and workers crossing delegation, pause, completion, or
 block boundaries. The artifact shape and redaction rules are defined in
-the [Handoff Document Standard](../../../../docs/common/handoff-standard.md);
+the [Handoff Document Standard](../../docs/common/handoff-standard.md);
 this section describes the embedded behavior unique to agent teams.
 
 ### Edge 1 -- Orchestrator delegates to a worker

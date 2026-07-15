@@ -93,7 +93,7 @@ handoff body.
 If no matching handoffs exist, proceed directly to epic-aware task
 selection below.
 
-See [Handoff Document Standard](../../../../docs/common/handoff-standard.md)
+See [Handoff Document Standard](../../docs/common/handoff-standard.md)
 for the full artifact shape, redaction rules, and producer behavior.
 
 ## Epic-Aware Task Selection
@@ -208,7 +208,7 @@ List other pending epics in priority order:
 
 - Do NOT start implementing - just explain the task and approach
 - Ask for confirmation before proceeding with implementation
-- If a task has a `claimed_by` value (human or agent), skip it unless claim is stale (>24h). See [Implementer Identification](../docs/common/stigmergic-collaboration.md#implementer-identification) for identifier formats.
+- If a task has a `claimed_by` value (human or agent), skip it unless claim is stale (>24h). See [Implementer Identification](../../docs/common/stigmergic-collaboration.md#implementer-identification) for identifier formats.
 - If no epics found, fall back to flat task parsing from `docs/ToDos.md`
 - If multiple tasks have equal priority within an epic, prefer one with relevant discoveries
 

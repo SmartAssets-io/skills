@@ -7,7 +7,7 @@
 # Environment:
 #   GEMINI_API_KEY    Required. API key for Gemini (or use GOOGLE_API_KEY)
 #   GOOGLE_API_KEY    Required. Alternative to GEMINI_API_KEY
-#   GEMINI_MODEL      Optional. Model to use (default: gemini-2.5-pro)
+#   GEMINI_MODEL      Optional. Model to use (default: gemini-3.1-pro-preview)
 #   GEMINI_MAX_TOKENS Optional. Max tokens (default: 16384)
 #
 # Usage:
@@ -23,7 +23,11 @@ GEMINI_PROVIDER_LOADED=1
 
 # Configuration
 GEMINI_API_BASE="https://generativelanguage.googleapis.com/v1beta"
-GEMINI_MODEL="${GEMINI_MODEL:-${GOOGLE_MODEL:-gemini-2.5-pro}}"
+# Current Pro-tier id; Gemini 3.x Pro ships as -preview ids (previous preview
+# ids have been retired before), so pin a replacement via GEMINI_MODEL if this
+# one is ever shut down. The review output's model field reports the actual
+# served modelVersion, so drift is visible.
+GEMINI_MODEL="${GEMINI_MODEL:-${GOOGLE_MODEL:-gemini-3.1-pro-preview}}"
 # Gemini 3 models use "thinking" tokens which count toward total output
 # Set higher limit to ensure enough room for both thinking and actual response
 GEMINI_MAX_TOKENS="${GEMINI_MAX_TOKENS:-${GOOGLE_MAX_TOKENS:-16384}}"
@@ -242,7 +246,14 @@ EOF
     fi
 
     # Add model info and return
-    printf '%s' "$content" | jq --arg model "$GEMINI_MODEL" '. + {model: $model}'
+    # Prefer the model version the API actually resolved (modelVersion, e.g.
+    # gemini-2.5-pro-002); keep the requested value for drift visibility
+    local actual_model
+    actual_model=$(printf '%s' "$response" | jq -r '.modelVersion // empty' 2>/dev/null)
+    printf '%s' "$content" | jq \
+        --arg model "${actual_model:-$GEMINI_MODEL}" \
+        --arg requested "$GEMINI_MODEL" \
+        '. + {model: $model, model_requested: $requested}'
 }
 
 #

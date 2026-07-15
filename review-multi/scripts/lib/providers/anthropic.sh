@@ -5,9 +5,12 @@
 # This provider implements the review interface for Anthropic's Claude models.
 #
 # Environment:
-#   ANTHROPIC_API_KEY    Required. API key for Anthropic
-#   ANTHROPIC_MODEL      Optional. Model to use (default: claude-opus-4-5-20251101)
-#   ANTHROPIC_MAX_TOKENS Optional. Max tokens (default: 4096)
+#   ANTHROPIC_API_KEY       Required. API key for Anthropic
+#   ANTHROPIC_MODEL         Optional. Model to use (default: claude-fable-5)
+#   ANTHROPIC_FALLBACK_MODEL Optional. Server-side fallback model used when the
+#                           primary model declines a request (default:
+#                           claude-opus-4-8; set empty to disable fallbacks)
+#   ANTHROPIC_MAX_TOKENS    Optional. Max tokens (default: 16384)
 #
 # Usage:
 #   source anthropic.sh
@@ -22,9 +25,14 @@ ANTHROPIC_PROVIDER_LOADED=1
 
 # Configuration
 ANTHROPIC_API_URL="https://api.anthropic.com/v1/messages"
-ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-claude-opus-4-5-20251101}"
+ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-claude-fable-5}"
+# claude-fable-5 safety classifiers can decline benign security-adjacent
+# review content; the server-side fallback re-runs the same request on the
+# fallback model in one round trip. Set ANTHROPIC_FALLBACK_MODEL="" to disable.
+ANTHROPIC_FALLBACK_MODEL="${ANTHROPIC_FALLBACK_MODEL-claude-opus-4-8}"
 ANTHROPIC_MAX_TOKENS="${ANTHROPIC_MAX_TOKENS:-16384}"
 ANTHROPIC_API_VERSION="2023-06-01"
+ANTHROPIC_FALLBACK_BETA="server-side-fallback-2026-06-01"
 
 #
 # Get provider name
@@ -80,33 +88,35 @@ ${diff}
 
 Please provide your review as a JSON object."
 
-    # Escape for JSON
-    # Use printf '%s' to preserve escape sequences
-    local escaped_message
-    escaped_message=$(printf '%s' "$full_message" | jq -Rs '.')
-
-    # Build request body
+    # Build request body entirely with jq so every value is escaped —
+    # env-provided ids must not be able to alter the JSON structure.
+    # Opt into the server-side fallback when configured so a
+    # safety-classifier decline is retried on the fallback model in the
+    # same call (beta header added below)
     local request_body
-    request_body=$(cat <<EOF
-{
-    "model": "$ANTHROPIC_MODEL",
-    "max_tokens": $ANTHROPIC_MAX_TOKENS,
-    "messages": [
-        {
-            "role": "user",
-            "content": $escaped_message
+    request_body=$(printf '%s' "$full_message" | jq -Rs \
+        --arg model "$ANTHROPIC_MODEL" \
+        --arg max_tokens "$ANTHROPIC_MAX_TOKENS" \
+        --arg fallback_model "$ANTHROPIC_FALLBACK_MODEL" \
+        '{
+            model: $model,
+            max_tokens: ($max_tokens | tonumber),
+            messages: [{role: "user", content: .}]
         }
-    ]
-}
-EOF
-)
+        + (if $fallback_model != "" then {fallbacks: [{model: $fallback_model}]} else {} end)')
 
     # Make API call
+    local -a beta_headers=()
+    if [[ -n "$ANTHROPIC_FALLBACK_MODEL" ]]; then
+        beta_headers=(-H "anthropic-beta: $ANTHROPIC_FALLBACK_BETA")
+    fi
+
     local response
     response=$(curl -s -X POST "$ANTHROPIC_API_URL" \
         -H "Content-Type: application/json" \
         -H "x-api-key: $ANTHROPIC_API_KEY" \
         -H "anthropic-version: $ANTHROPIC_API_VERSION" \
+        "${beta_headers[@]}" \
         -d "$request_body" 2>&1)
 
     local curl_exit_code=$?
@@ -147,10 +157,30 @@ EOF
         return 1
     fi
 
-    # Extract the response content
+    # Safety classifiers may decline (HTTP 200, stop_reason "refusal") -
+    # if a fallback was configured, a refusal here means the whole chain refused
+    local stop_reason
+    stop_reason=$(printf '%s' "$response" | jq -r '.stop_reason // empty' 2>/dev/null)
+    if [[ "$stop_reason" == "refusal" ]]; then
+        cat <<EOF
+{
+    "verdict": "abstain",
+    "confidence": 0.0,
+    "issues": [],
+    "summary": "Request declined by model safety classifiers (stop_reason: refusal)",
+    "error": "refusal: $(printf '%s' "$response" | jq -r '.stop_details.category // "uncategorized"' 2>/dev/null)",
+    "model": "$ANTHROPIC_MODEL"
+}
+EOF
+        return 1
+    fi
+
+    # Extract the response content - select text blocks explicitly, since
+    # responses can lead with thinking blocks (claude-fable-5 always thinks)
+    # or a fallback marker block
     # Use printf '%s' to preserve escape sequences in the JSON
     local content
-    content=$(printf '%s' "$response" | jq -r '.content[0].text // empty' 2>/dev/null)
+    content=$(printf '%s' "$response" | jq -r '[.content[]? | select(.type == "text") | .text] | first // empty' 2>/dev/null)
 
     if [[ -z "$content" ]]; then
         cat <<EOF
@@ -227,7 +257,14 @@ EOF
     fi
 
     # Add model info and return
-    printf '%s' "$json_result" | jq --arg model "$ANTHROPIC_MODEL" '. + {model: $model}'
+    # Prefer the model the API actually resolved (may differ from the
+    # requested alias); keep the requested value for drift visibility
+    local actual_model
+    actual_model=$(printf '%s' "$response" | jq -r '.model // empty' 2>/dev/null)
+    printf '%s' "$json_result" | jq \
+        --arg model "${actual_model:-$ANTHROPIC_MODEL}" \
+        --arg requested "$ANTHROPIC_MODEL" \
+        '. + {model: $model, model_requested: $requested}'
 }
 
 #

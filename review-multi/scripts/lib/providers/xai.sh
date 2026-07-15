@@ -305,7 +305,14 @@ Please provide your review as a JSON object."
     fi
 
     # Add model info and return
-    printf '%s' "$content" | jq --arg model "$XAI_MODEL" '. + {model: $model}'
+    # Prefer the model the API actually resolved (may differ from the
+    # requested alias); keep the requested value for drift visibility
+    local actual_model
+    actual_model=$(printf '%s' "$response" | jq -r '.model // empty' 2>/dev/null)
+    printf '%s' "$content" | jq \
+        --arg model "${actual_model:-$XAI_MODEL}" \
+        --arg requested "$XAI_MODEL" \
+        '. + {model: $model, model_requested: $requested}'
 }
 
 #

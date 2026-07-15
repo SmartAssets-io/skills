@@ -89,6 +89,16 @@ declare -A SEVERITY_ICONS=(
 #   - If threshold providers agree on a verdict, that's the consensus
 #   - Otherwise, the most severe non-abstain verdict wins
 #
+# Portable fixed-point helpers. bc is absent on minimal CI images, and its
+# output drops the leading zero (.5000), which is not valid JSON.
+_ratio4() {
+    awk -v n="$1" -v d="$2" 'BEGIN { printf "%.4f", (d != 0) ? n / d : 0 }'
+}
+
+_num_ge() {
+    awk -v a="$1" -v b="$2" 'BEGIN { exit !(a >= b) }'
+}
+
 calculate_consensus() {
     local reviews_json="$1"
 
@@ -138,26 +148,26 @@ EOF
     # Critical vulnerabilities always wins (security-first)
     if [[ $critical_count -gt 0 ]]; then
         verdict="critical_vulnerabilities"
-        agreement=$(echo "scale=4; $critical_count / $voting_count" | bc)
+        agreement=$(_ratio4 "$critical_count" "$voting_count")
     else
         # Check for threshold consensus on each verdict (in severity order)
         local critical_ratio needs_review_ratio feedback_ratio comment_ratio approve_ratio
-        critical_ratio=$(echo "scale=4; $critical_count / $voting_count" | bc)
-        needs_review_ratio=$(echo "scale=4; $needs_review_count / $voting_count" | bc)
-        feedback_ratio=$(echo "scale=4; $feedback_count / $voting_count" | bc)
-        comment_ratio=$(echo "scale=4; $comment_count / $voting_count" | bc)
-        approve_ratio=$(echo "scale=4; $approve_count / $voting_count" | bc)
+        critical_ratio=$(_ratio4 "$critical_count" "$voting_count")
+        needs_review_ratio=$(_ratio4 "$needs_review_count" "$voting_count")
+        feedback_ratio=$(_ratio4 "$feedback_count" "$voting_count")
+        comment_ratio=$(_ratio4 "$comment_count" "$voting_count")
+        approve_ratio=$(_ratio4 "$approve_count" "$voting_count")
 
-        if (( $(echo "$approve_ratio >= $CONSENSUS_THRESHOLD" | bc -l) )); then
+        if _num_ge "$approve_ratio" "$CONSENSUS_THRESHOLD"; then
             verdict="approve"
             agreement="$approve_ratio"
-        elif (( $(echo "$comment_ratio >= $CONSENSUS_THRESHOLD" | bc -l) )); then
+        elif _num_ge "$comment_ratio" "$CONSENSUS_THRESHOLD"; then
             verdict="comment_only"
             agreement="$comment_ratio"
-        elif (( $(echo "$feedback_ratio >= $CONSENSUS_THRESHOLD" | bc -l) )); then
+        elif _num_ge "$feedback_ratio" "$CONSENSUS_THRESHOLD"; then
             verdict="provide_feedback"
             agreement="$feedback_ratio"
-        elif (( $(echo "$needs_review_ratio >= $CONSENSUS_THRESHOLD" | bc -l) )); then
+        elif _num_ge "$needs_review_ratio" "$CONSENSUS_THRESHOLD"; then
             verdict="needs_review"
             agreement="$needs_review_ratio"
         else
@@ -321,6 +331,7 @@ generate_provider_summary() {
         map({
             provider: .provider,
             model: .model,
+            model_requested: (.model_requested // .model),
             verdict: .verdict,
             confidence: .confidence,
             issue_count: (.issues | length),
@@ -420,10 +431,17 @@ format_markdown() {
     md+="## Multi-Agent Code Review\n\n"
     md+="**Verdict:** ${verdict_icon} ${verdict_text} (${agreement_pct}% agreement)\n\n"
 
-    # Provider breakdown
-    md+="**Reviewed by:**\n"
+    # Provider breakdown table - model id in backticks; when the API served
+    # a different model than requested, the cell shows both
+    md+="**Reviewed by:**\n\n"
+    md+="| Provider | Model | Verdict | Confidence |\n"
+    md+="|----------|-------|---------|------------|\n"
     local provider_lines
-    provider_lines=$(echo "$aggregated_json" | jq -r '.providers[] | "- \(.provider) (\(.model // "unknown")): \(.verdict | if . == "critical_vulnerabilities" then "Critical Vulnerabilities" elif . == "needs_review" then "Needs Review" elif . == "provide_feedback" then "Feedback Provided" elif . == "comment_only" then "Comments Only" elif . == "approve" then "Approve" elif . == "abstain" then "Abstain" elif . == "error_timeout" then "Timeout Error" elif . == "error_network" then "Network Error" elif . == "error_auth" then "Auth Error" elif . == "error_service" then "Service Error" else . end) (confidence: \(.confidence | . * 100 | floor / 100))"')
+    provider_lines=$(echo "$aggregated_json" | jq -r '.providers[] |
+        (.model // "unknown") as $model |
+        (.model_requested // $model) as $requested |
+        (if $requested != $model then "`\($model)` (requested `\($requested)`)" else "`\($model)`" end) as $model_cell |
+        "| \(.provider) | \($model_cell) | \(.verdict | if . == "critical_vulnerabilities" then "Critical Vulnerabilities" elif . == "needs_review" then "Needs Review" elif . == "provide_feedback" then "Feedback Provided" elif . == "comment_only" then "Comments Only" elif . == "approve" then "Approve" elif . == "abstain" then "Abstain" elif . == "error_timeout" then "Timeout Error" elif . == "error_network" then "Network Error" elif . == "error_auth" then "Auth Error" elif . == "error_service" then "Service Error" else . end) | \(.confidence | . * 100 | floor / 100) |"')
     if [[ -n "$provider_lines" ]]; then
         md+="${provider_lines}\n"
     fi

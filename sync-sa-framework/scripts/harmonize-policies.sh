@@ -29,6 +29,7 @@ source "${LIB_DIR}/harmonize-file-ops.sh"
 source "${LIB_DIR}/harmonize-derive.sh"
 source "${LIB_DIR}/harmonize-summary.sh"
 source "${LIB_DIR}/harmonize-process.sh"
+source "${LIB_DIR}/harmonize-ci.sh"
 
 # Source profile directory detection for task file routing
 source "${SCRIPT_DIR}/detect-profile-directory.sh"
@@ -130,6 +131,8 @@ Files Harmonized:
   - feature-manifest.yaml (opt-in via .gitattributes sa-artifact=scaffold)
   - Smart Asset structure (candidate repos - scaffolds docs/SmartAssetSpec/)
   - pre-push hooks (injects ls-remote race guard if missing)
+  - markdown link check CI job (repos with existing CI only; see
+    docs/common/markdown-link-check-standard.md)
 
 Examples:
   $(basename "$0")                    # Harmonize all repos
@@ -236,6 +239,7 @@ process_repository() {
         process_task_files "$repo_path" "$rel_path" "$python_cmd" repo_created repo_updated repo_error get_task_files_location
         process_roadmap_md "$repo_path" "$rel_path" repo_created repo_error
         process_pre_push_hook "$repo_path" "$rel_path" repo_updated repo_error
+        process_markdown_link_check "$repo_path" "$rel_path" repo_created repo_updated repo_error
     fi
 
     # Update summary counters

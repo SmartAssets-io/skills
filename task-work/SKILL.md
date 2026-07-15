@@ -42,7 +42,7 @@ The agent will:
 ## Stigmergic Behavior
 
 The agent follows stigmergic conventions:
-- **Claims tasks** before working using [Implementer Identification](../docs/common/stigmergic-collaboration.md#implementer-identification) format (prevents parallel conflicts)
+- **Claims tasks** before working using [Implementer Identification](../../docs/common/stigmergic-collaboration.md#implementer-identification) format (prevents parallel conflicts)
 - **Creates work logs** for visibility across sessions
 - **Records discoveries** that help other implementers
 - **Updates handoff notes** even when pausing
