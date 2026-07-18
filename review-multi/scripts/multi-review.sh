@@ -721,17 +721,35 @@ main() {
     local markdown
     markdown=$(format_markdown "$aggregated")
 
+    # Persist results before posting: provider reviews are expensive, and a
+    # posting failure must not lose them. mktemp -d gives an unpredictable,
+    # owner-only (0700) directory; a fixed $$-suffixed name in shared /tmp is
+    # predictable (symlink-plantable) and leaves review content world-readable.
+    local results_dir
+    results_dir=$(mktemp -d "${TMPDIR:-/tmp}/multi-review.XXXXXX")
+    local results_base="${results_dir}/${TARGET//\//_}"
+    echo "$aggregated" > "${results_base}.json"
+    echo "$markdown" > "${results_base}.md"
+    log_verbose "Results saved: ${results_base}.json / ${results_base}.md"
+
     # Output based on options
     if [[ "$OUTPUT_JSON" == "true" ]]; then
         echo "$aggregated" | jq '.'
     elif [[ "$NO_POST" == "true" ]]; then
         echo "$markdown"
     else
-        # Post to PR/MR
+        # Post to PR/MR; guard against `set -e` so a posting failure is
+        # reported (with the saved-results path) instead of silently exiting
         show_progress "Posting review comment"
-        local post_result
-        post_result=$(post_review "$platform" "$TARGET" "$markdown" "$verdict")
+        local post_result post_exit=0
+        post_result=$(post_review "$platform" "$TARGET" "$markdown" "$verdict") || post_exit=$?
         show_progress_done
+
+        if [[ $post_exit -ne 0 ]]; then
+            log_error "Failed to post review comment: $post_result"
+            log_info "Review results preserved at: ${results_base}.md (markdown), ${results_base}.json (JSON)"
+            exit $EXIT_ERROR
+        fi
 
         log_success "Review posted to $platform PR/MR $TARGET"
 
@@ -755,6 +773,11 @@ main() {
             --arg platform "$platform" \
             '. + {url: $url, target: $target, platform: $platform}' >&2
     fi
+
+    # Results were delivered (posted or printed) — drop the persisted copy so
+    # runs don't accumulate in TMPDIR. The posting-failure branch above exits
+    # before this line, keeping the files.
+    rm -rf "$results_dir"
 
     # Exit with appropriate code based on verdict
     if [[ "$verdict" == "needs_work" ]]; then

@@ -11,7 +11,12 @@
 #   XAI_MODEL           Optional. Model to use (default: grok-4.5)
 #   GROK_MODEL          Optional. Alternative to XAI_MODEL
 #   XAI_MAX_TOKENS      Optional. Max tokens (default: 16384)
-#   XAI_ENABLE_TOOLS    Optional. Enable web_search/code_interpreter (default: true)
+#   XAI_ENABLE_TOOLS    Optional. Enable web_search/code_interpreter (default: false).
+#                       Tool-assisted reviews take ~10x longer (158s vs 14s on a
+#                       95KB diff) and blow past PROVIDER_TIMEOUT; raise
+#                       XAI_TIMEOUT if you enable them.
+#   XAI_TIMEOUT         Optional. Per-provider timeout in seconds (overrides
+#                       PROVIDER_TIMEOUT for xai; also bounds the HTTP call)
 #   XAI_DEBUG           Optional. Include debug info in error responses
 #
 # Usage:
@@ -30,7 +35,9 @@ XAI_PROVIDER_LOADED=1
 XAI_API_URL="${XAI_API_URL:-https://api.x.ai/v1/responses}"
 XAI_MODEL="${XAI_MODEL:-${GROK_MODEL:-grok-4.5}}"
 XAI_MAX_TOKENS="${XAI_MAX_TOKENS:-16384}"
-XAI_ENABLE_TOOLS="${XAI_ENABLE_TOOLS:-true}"
+# Tools default off: grok-4.5 with web_search/code_interpreter takes minutes on
+# a real review diff, exceeding the 120s provider timeout (observed 158s vs 14s)
+XAI_ENABLE_TOOLS="${XAI_ENABLE_TOOLS:-false}"
 
 #
 # Get provider name
@@ -193,8 +200,19 @@ Please provide your review as a JSON object."
     )
 
     # Make API call
+    # Bound the HTTP call just under the harness timeout so a slow response
+    # surfaces as a curl timeout (exit 28) with a diagnosable error instead of
+    # the outer `timeout` killing us with empty output. Validate the env vars
+    # first: arithmetic on a non-numeric value aborts the script under set -e.
+    local xai_timeout="${XAI_TIMEOUT:-${PROVIDER_TIMEOUT:-120}}"
+    [[ "$xai_timeout" =~ ^[0-9]+$ ]] || xai_timeout=120
+    local curl_max_time=$(( xai_timeout - 5 ))
+    # Floor at 1s but never exceed the harness timeout itself, so the curl
+    # bound always fires before the outer timeout kills us
+    (( curl_max_time < 1 )) && curl_max_time=1
+
     local response
-    response=$(curl -s -X POST "$XAI_API_URL" \
+    response=$(curl -s --max-time "$curl_max_time" -X POST "$XAI_API_URL" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $api_key" \
         -d "$request_body" 2>&1)
@@ -202,9 +220,13 @@ Please provide your review as a JSON object."
     local curl_exit_code=$?
 
     if [[ $curl_exit_code -ne 0 ]]; then
+        local curl_error="curl failed with exit code $curl_exit_code"
+        if [[ $curl_exit_code -eq 28 ]]; then
+            curl_error="request timed out after ${curl_max_time}s (model: $XAI_MODEL, tools: $tools_enabled)"
+        fi
         _xai_error_response \
             "API request failed" \
-            "curl failed with exit code $curl_exit_code"
+            "$curl_error"
         return 1
     fi
 
