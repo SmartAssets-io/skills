@@ -630,9 +630,19 @@ provider_execute_review() {
         return 1
     fi
 
-    # Execute with timeout
+    # Execute with timeout; a per-provider override (e.g. XAI_TIMEOUT,
+    # ANTHROPIC_TIMEOUT) takes precedence over the global PROVIDER_TIMEOUT.
+    # Non-alphanumeric characters in the provider name (e.g. hyphens) map to
+    # underscores so indirect expansion always gets a valid variable name.
+    local timeout_var
+    timeout_var="$(printf '%s' "$provider" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_' '_')_TIMEOUT"
+    local provider_timeout="${!timeout_var:-$PROVIDER_TIMEOUT}"
+    if ! [[ "$provider_timeout" =~ ^[0-9]+$ ]]; then
+        log_provider_warning "Ignoring non-numeric timeout ${timeout_var}=${provider_timeout}; using ${PROVIDER_TIMEOUT}s"
+        provider_timeout="$PROVIDER_TIMEOUT"
+    fi
     local result
-    result=$(execute_with_timeout "$PROVIDER_TIMEOUT" "$review_func" "$diff" "$context")
+    result=$(execute_with_timeout "$provider_timeout" "$review_func" "$diff" "$context")
     local exit_code=$?
 
     local end_time
@@ -898,6 +908,10 @@ Environment Variables:
     OLLAMA_HOST          Ollama API endpoint (default: http://localhost:11434)
     SA_REVIEW_CONFIG     Path to config file
     PROVIDER_TIMEOUT     Timeout in seconds (default: 120)
+    <PROVIDER>_TIMEOUT   Per-provider timeout override, e.g. XAI_TIMEOUT=300
+                         (providers that make HTTP calls bound them ~5s under
+                         this value so slow responses surface as diagnosable
+                         curl timeouts instead of empty output)
     DEBUG                Set to "true" for debug output
 
 As a library:

@@ -265,39 +265,90 @@ github_post_review() {
     temp_file=$(mktemp)
     echo "$comment" > "$temp_file"
 
-    # Map verdict to gh review event
-    local review_event="COMMENT"
+    # Map verdict to a gh review flag. gh's flags are lowercase
+    # (--approve / --comment / --request-changes); the uppercase REST-API
+    # event names used previously made `gh pr review --COMMENT` fail with
+    # "unknown flag" on every non-self-authored PR.
+    local review_event="comment"
     case "$verdict" in
         approve)
-            review_event="APPROVE"
+            review_event="approve"
             ;;
         needs_work)
-            review_event="REQUEST_CHANGES"
+            review_event="request-changes"
             ;;
         *)
-            review_event="COMMENT"
+            review_event="comment"
             ;;
     esac
 
     # GitHub disallows reviewing your own PR. Fall back to a plain comment
-    # when the PR author matches the authenticated user.
+    # when the PR author matches the authenticated user. `|| true` keeps a
+    # failed lookup from aborting the function under the caller's `set -e`.
     local pr_author current_user
-    pr_author=$(gh pr view --json author -q '.author.login' -- "$pr_number" 2>/dev/null)
-    current_user=$(gh api user -q '.login' 2>/dev/null)
+    pr_author=$(gh pr view --json author -q '.author.login' -- "$pr_number" 2>/dev/null) || true
+    current_user=$(gh api user -q '.login' 2>/dev/null) || true
 
-    local exit_code
+    # Guard every gh call with `|| exit_code=$?` so the caller's `set -e`
+    # cannot abort mid-function and swallow the error output.
+    local exit_code=0
+    local output=""
     if [[ -n "$pr_author" && -n "$current_user" && "$pr_author" == "$current_user" ]]; then
         echo "Note: self-authored PR (#$pr_number); posting as comment instead of review" >&2
-        gh pr comment --body-file "$temp_file" -- "$pr_number" 2>&1
-        exit_code=$?
+        output=$(gh pr comment --body-file "$temp_file" -- "$pr_number" 2>&1) || exit_code=$?
     else
-        gh pr review --$review_event --body-file "$temp_file" -- "$pr_number" 2>&1
-        exit_code=$?
+        output=$(gh pr review "--${review_event}" --body-file "$temp_file" -- "$pr_number" 2>&1) || exit_code=$?
+        if [[ $exit_code -ne 0 ]] && _github_env_token_set && _github_is_permission_error "$output"; then
+            # An env token (often a fine-grained PAT) is rejected by the
+            # GraphQL addPullRequestReview mutation even when the keyring-
+            # stored gh login would succeed. Retry the review itself first so
+            # the approve/request-changes verdict is preserved.
+            echo "Warning: gh pr review failed with env token ($output); retrying review with stored gh credentials" >&2
+            exit_code=0
+            output=$(env -u GITHUB_TOKEN -u GH_TOKEN gh pr review "--${review_event}" --body-file "$temp_file" -- "$pr_number" 2>&1) || exit_code=$?
+        fi
+        if [[ $exit_code -ne 0 ]] && _github_is_permission_error "$output"; then
+            # Last resort: a plain issue comment needs fewer permissions.
+            # Only downgrade on permission-shaped errors — retrying after a
+            # network/timeout failure risks double-posting, and the review
+            # verdict is lost in the downgrade.
+            echo "Warning: gh pr review failed ($output); falling back to plain comment (verdict '$review_event' will not be recorded as a review)" >&2
+            exit_code=0
+            output=$(gh pr comment --body-file "$temp_file" -- "$pr_number" 2>&1) || exit_code=$?
+        fi
     fi
 
+    if [[ $exit_code -ne 0 ]] && _github_env_token_set && _github_is_permission_error "$output"; then
+        # GITHUB_TOKEN/GH_TOKEN (often a fine-grained PAT) can lack GraphQL
+        # comment permissions the keyring-stored gh login has; retry without
+        # them. gh prefers GH_TOKEN, so both must be cleared.
+        echo "Warning: posting failed with env token ($output); retrying with stored gh credentials" >&2
+        exit_code=0
+        output=$(env -u GITHUB_TOKEN -u GH_TOKEN gh pr comment --body-file "$temp_file" -- "$pr_number" 2>&1) || exit_code=$?
+    fi
+
+    printf '%s\n' "$output"
     rm -f "$temp_file"
 
     return $exit_code
+}
+
+#
+# True if a GitHub token is supplied via the environment (gh prefers GH_TOKEN
+# over GITHUB_TOKEN; either overrides the keyring-stored login)
+#
+_github_env_token_set() {
+    [[ -n "${GITHUB_TOKEN:-}" || -n "${GH_TOKEN:-}" ]]
+}
+
+#
+# True if a gh error message looks like an auth/permission failure. Retries
+# and comment-fallbacks are gated on this: a permission error means nothing
+# was posted, so retrying cannot double-post.
+#
+_github_is_permission_error() {
+    local msg="$1"
+    [[ "$msg" =~ 403|401|[Ff]orbidden|[Nn]ot\ authorized|[Rr]esource\ not\ accessible|[Pp]ermission|[Ss]cope|GraphQL ]]
 }
 
 #
