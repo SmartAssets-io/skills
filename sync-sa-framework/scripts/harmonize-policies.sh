@@ -51,12 +51,10 @@ SCAFFOLD_SA="auto"
 # Use --depth 1 to limit to just the root repository
 SCAN_DEPTH=8
 
-# Recursion into nested repositories is OPT-IN via --recursive. By default
-# only the target itself (cwd or PATH) is processed: a local umbrella gets
-# the workspace subset (CLAUDE/AGENTS/GEMINI); a normal repo gets full
-# treatment. Recursive harmonization of every nested repo must be an
-# explicit, deliberate request.
-RECURSIVE=false
+# Process only the target itself (cwd or PATH), skipping nested-repo discovery.
+# For a local umbrella this applies the workspace subset (CLAUDE/AGENTS/GEMINI);
+# for a normal repo it gets full treatment. No recursion into nested repos.
+SELF_ONLY=false
 
 # Exit codes
 EXIT_SUCCESS=0
@@ -102,13 +100,11 @@ Options:
   --source DIR      Source template directory (default: auto-detected)
   --verbose         Show detailed diff output
   --no-color        Disable colored output
-  --recursive, -r   Recurse into nested repositories and harmonize each one.
-                        Without this flag only the target dir (cwd or PATH)
-                        is processed. For a local umbrella the target gets
-                        the CLAUDE/AGENTS/GEMINI workspace subset.
-  --depth N         Limit repository scan depth in --recursive mode (default: 8)
+  --depth N         Limit repository scan depth (default: 8)
                         1 = root repo only, 2 = root + immediate children, etc.
-  --self-only       Deprecated: this is now the default behavior.
+  --self-only       Process only the target dir (cwd or PATH); do NOT recurse
+                        into nested repositories. For a local umbrella this
+                        applies the CLAUDE/AGENTS/GEMINI workspace subset.
   --scaffold-sa[=MODE]  Control Smart Asset scaffolding behavior
                         auto  - Use mode defaults (default)
                         ask   - Always prompt before scaffolding
@@ -139,13 +135,14 @@ Files Harmonized:
     docs/common/markdown-link-check-standard.md)
 
 Examples:
-  $(basename "$0")                    # Harmonize current repo/umbrella only
-  $(basename "$0") --recursive        # Harmonize all nested repos too
-  $(basename "$0") BountyForge/ -r    # Harmonize BountyForge subtree
+  $(basename "$0")                    # Harmonize all repos
+  $(basename "$0") BountyForge/       # Harmonize BountyForge subtree
   $(basename "$0") --dry-run          # Preview without changes
-  $(basename "$0") SATCHEL/ -r --verbose # Detailed output
+  $(basename "$0") SATCHEL/ --verbose # Detailed output
   $(basename "$0") --scaffold-sa=skip # Skip Smart Asset scaffolding
   $(basename "$0") --scaffold-sa=force # Force scaffold without prompts
+  $(basename "$0") --depth 1           # Harmonize root repo only
+  $(basename "$0") --self-only         # Process current dir only, no recursion
 
 Exit Codes:
   0    Success
@@ -277,8 +274,7 @@ parse_args() {
                     exit $EXIT_INVALID_ARGS
                 fi
                 SCAN_DEPTH="$2"; shift 2 ;;
-            --recursive|-r) RECURSIVE=true; shift ;;
-            --self-only) RECURSIVE=false; shift ;;  # deprecated: now the default
+            --self-only) SELF_ONLY=true; shift ;;
             --scaffold-sa) SCAFFOLD_SA="ask"; shift ;;
             --scaffold-sa=*)
                 local sa_value="${1#*=}"
@@ -308,11 +304,8 @@ main() {
     show_preflight_summary
 
     local repos repo_count
-    if [[ "$RECURSIVE" == true ]]; then
-        log_info "Recursive mode: scanning for repositories under: $TARGET_PATH"
-        if ! repos=$(discover_repos "$TARGET_PATH"); then exit $EXIT_NO_REPOS; fi
-    else
-        # Default: process just the target, no nested-repo discovery.
+    if [[ "$SELF_ONLY" == true ]]; then
+        # Self-only: process just the target, no nested-repo discovery.
         local target_abs
         target_abs=$(realpath "$TARGET_PATH" 2>/dev/null)
         if [[ -z "$target_abs" || ! -d "$target_abs" ]]; then
@@ -320,7 +313,10 @@ main() {
             exit $EXIT_NO_REPOS
         fi
         repos="$target_abs"
-        log_info "Processing target only: $target_abs (use --recursive to include nested repos)"
+        log_info "Self-only mode: processing $target_abs (no recursion into nested repos)"
+    else
+        log_info "Scanning for repositories under: $TARGET_PATH"
+        if ! repos=$(discover_repos "$TARGET_PATH"); then exit $EXIT_NO_REPOS; fi
     fi
     repo_count=$(echo "$repos" | wc -l | tr -d ' ')
     log_info "Found $repo_count git repositories"
