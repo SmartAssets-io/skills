@@ -18,7 +18,8 @@ If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this syn
 /sync:sa-framework [OPTIONS]
 
 Options:
-  --depth N             Max scan depth for repo discovery (default: 8)
+  --recursive, -r       Recurse into nested repos (default: target repo only)
+  --depth N             Max scan depth in --recursive mode (default: 8)
   --dry-run             Preview changes without modifying files
   --yes, -y             Auto-apply without prompting
   --verbose             Show detailed output per file
@@ -31,7 +32,7 @@ Options:
 
 Synchronize policies, approaches, and conventions across repositories. This command harmonizes target projects with the patterns and standards defined in `gitlab-profile`.
 
-**Important:** The script scans **downward from your current working directory**. It does NOT scan parent directories or the entire workspace.
+**Important:** By default the script harmonizes **only the target repository** (current directory or the explicit `PATH` argument). Recursing into nested repositories requires the explicit `--recursive` (`-r`) flag; even then it only scans **downward** from the target, never parent directories.
 
 ## Configuration File Conventions
 
@@ -56,27 +57,27 @@ The script auto-detects its location to find templates, so you can run it from a
 
 ## Modes
 
-### Current Repository Only
+### Current Repository Only (Default)
 
-When run from a project directory without arguments, harmonizes only that repository:
+Without `--recursive`, harmonizes only the target repository — never its nested repos:
 
 ```bash
 cd /path/to/my-project
 "scripts/harmonize-policies.sh"
-# Scans only my-project/
+# Processes only my-project/ (a local umbrella gets the CLAUDE/AGENTS/GEMINI subset)
 ```
 
-### Subtree of Repositories
+### Subtree of Repositories (Opt-In)
 
-To harmonize multiple repositories, run from a parent directory or specify a PATH:
+To harmonize multiple repositories, pass `--recursive` from a parent directory or with a PATH:
 
 ```bash
 cd /path/to/SATCHEL
-"scripts/harmonize-policies.sh"
+"scripts/harmonize-policies.sh" --recursive
 # Scans all repos under SATCHEL/
 
 # Or specify a relative path from cwd:
-"scripts/harmonize-policies.sh" ./subdir/
+"scripts/harmonize-policies.sh" ./subdir/ --recursive
 ```
 
 ### Dry Run Preview
@@ -124,6 +125,7 @@ Sample output for a workspace umbrella:
 
 | Option | Description |
 |--------|-------------|
+| `--recursive`, `-r` | Recurse into nested repositories (default: target repo only) |
 | `--dry-run` | Preview changes without modifying files |
 | `--force` | Overwrite customized files (default: preserve them) |
 | `--yes`, `-y` | Auto-apply all changes without prompting |
