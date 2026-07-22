@@ -390,6 +390,14 @@ prompt_action() {
         return 1  # skip (but logged as would-apply)
     fi
 
+    # Non-interactive stdin (agent/CI invocation without --yes): read would
+    # fail instantly and every change would be silently declined. Skip loudly
+    # so the run cannot masquerade as a clean apply.
+    if [[ ! -t 0 ]]; then
+        log_warning "stdin is not a TTY - skipping '${message}' (pass --yes/-y to apply in non-interactive runs)"
+        return 1  # skip
+    fi
+
     # Interactive mode: prompt user with timeout and retry logic
     while [[ $attempt -lt $max_attempts ]]; do
         echo ""
