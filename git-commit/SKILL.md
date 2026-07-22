@@ -150,7 +150,7 @@ This returns JSON:
   "cwd_is_git_repo": true,
   "cwd_has_tracked_changes": false,
   "cwd_origin": "git@gitlab.com:smart-assets.io/foo.git",
-  "recommended_default": "multi-repo",  // present only when mode == "ambiguous"
+  "recommended_default": "single-repo", // present only when "ambiguous"; always single-repo (fan-out is opt-in)
   "git_root": "/path/to/repo",
   "working_directory": "/path/to/current/dir",
   "single_repo_override": "--single-repo flag bypasses auto-detection"
@@ -192,10 +192,10 @@ Options:
 Mark whichever option matches `recommended_default` from the --detect-mode JSON with "(Recommended)".
 ```
 
-**Why the recommendation is computed this way (in the script):**
-- If cwd has no `origin` remote configured → recommend multi-repo (cwd is likely a workspace umbrella that isn't pushed anywhere on its own; the nested repos are the real units of work)
-- If any nested repo with changes has an origin URL different from cwd's origin → recommend multi-repo (workspace contains independent projects with their own remotes)
-- Otherwise → recommend single-repo (origins all match — the nested `.git` dirs are likely subtree clones of the same repo, not independent units)
+**Why the recommendation is always single-repo (in the script):**
+- Workspace convention: fan-out across nested repositories is an explicit, user-chosen opt-in — never a recommendation. `recommended_default` is therefore always `single-repo` in ambiguous mode.
+- Multi-repo remains available as the non-default option; choosing it leads into the plan-gated discover/execute flow below.
+- (An earlier origin-comparison heuristic recommended multi-repo for no-origin umbrella directories — exactly backwards for umbrella workspaces, where the umbrella itself is the intended commit target.)
 
 **Apply the user's choice:**
 - "Single-repo" → run `git-commit.sh --single-repo "message"` (skip Multi-Repo Mode entirely)
@@ -421,6 +421,7 @@ This returns JSON with:
 - File counts per repository
 - Branch name for each repository
 - Whether approval is needed (based on thresholds: >5 files or >2 repos)
+- A `plan` block (`plan.id`) recording the discovered repo set and each repo's state — `--execute` requires this id (see the plan gate in Step 5)
 
 **Start-directory inclusion is critical.** A previous version of this script silently omitted the cwd repo when nested repos existed, dropping tracked changes from `--discover` output. The `is_start_directory: true` flag and the `start_directory` metadata block exist precisely so you can never miss it. **Before generating commit messages, verify: if `start_directory.has_changes == true`, the repositories array MUST contain an entry with `is_start_directory: true`. If it does not, that is a bug — surface it to the user and STOP.**
 
@@ -493,10 +494,11 @@ If user does not approve, exit without committing.
 
 ### Step 5: Execute commits via script
 
-Run the script in execute mode with all repo:message pairs:
+Run the script in execute mode with the plan id from Step 1 and all repo:message pairs:
 
 ```bash
 MULTI_REPO=true scripts/git-commit.sh --execute \
+  --plan <plan.id> \
   "repo/path:commit message one" \
   "another/repo:commit message two"
 ```
@@ -505,6 +507,8 @@ MULTI_REPO=true scripts/git-commit.sh --execute \
 - `repo_path` is relative to the working directory
 - The first `:` separates path from message
 - Message can contain colons
+
+**Plan gate (two-phase confirm)**: `--execute` requires `--plan <plan.id>` — the id emitted by this session's `--discover` output. This is a deterministic guard in the script, not an instruction: plans are single-use, expire after 15 minutes (`QUICK_COMMIT_PLAN_TTL` seconds), and execution is refused outright if any target repo is missing from the plan or its state changed since discovery (new commits or files; staging previously-discovered files is fine). On refusal, re-run `--discover`, re-confirm the repo list with the user, and use the fresh plan id. The confirmed repo set is therefore exactly — and the most — that can execute.
 
 The script will:
 - Process each repository
@@ -618,6 +622,7 @@ Claude: [runs: scripts/quick-commit.sh --detect-mode]
         [parses JSON: 2 repos, 4 files]
         [for each repo: git diff, generate message]
         [runs: MULTI_REPO=true scripts/quick-commit.sh --execute \
+               --plan <plan.id from --discover> \
                "BountyForge/ToolChain:chore: update config files" \
                "ssl_data_spigot:chore: update config files"]
         [hook prompts, user approves]
@@ -694,12 +699,14 @@ scripts/git-commit.sh --single-repo "commit message"
 
 # Multi-repo mode (MULTI_REPO=true)
 MULTI_REPO=true scripts/git-commit.sh --discover
-MULTI_REPO=true scripts/git-commit.sh --execute "repo:msg" ...
+MULTI_REPO=true scripts/git-commit.sh --execute --plan <plan.id> "repo:msg" ...
 ```
 
 ## Safety Architecture
 
 **Layered security model:**
+
+0. **Plan gate** (deterministic, in-script): multi-repo `--execute` requires a fresh, single-use plan id from `--discover` covering exactly the repos being committed (see Step 5). A PreToolUse hook (`scripts/fanout-gate-hook.sh`, wired via the workspace `.claude/settings.json`) additionally forces a native user permission prompt on any `--execute` invocation, independent of what the model decided.
 
 1. **Skill definition guard** (text-based): The "CRITICAL: User-Invoked Only" section at the top of this file instructs Claude to verify user intent before proceeding
 

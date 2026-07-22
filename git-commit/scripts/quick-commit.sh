@@ -20,8 +20,9 @@
 #   AItools/scripts/git-commit.sh --single-repo "commit message"
 #
 # Multi-repo mode (MULTI_REPO=true):
-#   AItools/scripts/git-commit.sh --discover              # List repos with changes
-#   AItools/scripts/git-commit.sh --execute "repo1:msg1" "repo2:msg2"  # Commit with messages
+#   AItools/scripts/git-commit.sh --discover              # List repos with changes (emits plan.id)
+#   AItools/scripts/git-commit.sh --execute --plan <plan.id> "repo1:msg1" "repo2:msg2"
+#     Commits with messages; requires the single-use plan id from --discover
 #
 # Safety features:
 # - NEVER runs git add - only commits tracked modified/deleted files
@@ -79,6 +80,155 @@ fi
 if [[ -f "$SCRIPT_DIR/lib/mode.sh" ]]; then
     source "$SCRIPT_DIR/lib/mode.sh"
 fi
+
+# ============================================================================
+# Two-phase plan/confirm for multi-repo execution
+# ----------------------------------------------------------------------------
+# --discover records the exact repo set (and each repo's state) as a plan
+# file and reports the plan id in its JSON output. --execute REQUIRES that
+# id (--plan <id>) and refuses to run if the plan is missing, expired,
+# consumed, or if any target repo is absent from the plan or has changed
+# state since discovery. This guarantees the repo list shown to the user at
+# confirmation time is exactly what executes — fan-out can never exceed the
+# discovered-and-confirmed set, and a stale approval can't authorize a
+# later, different run. Plans are single-use and expire after
+# QUICK_COMMIT_PLAN_TTL seconds (default 900).
+# ============================================================================
+PLAN_TTL_SECONDS="${QUICK_COMMIT_PLAN_TTL:-900}"
+PLAN_REPO_ENTRIES=()
+
+_qc_hash() {
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 | awk '{print $1}'
+    else
+        sha256sum | awk '{print $1}'
+    fi
+}
+
+_qc_plan_dir() {
+    echo "${TMPDIR:-/tmp}/sa-quick-commit-plans-$(id -u)"
+}
+
+# One plan per start directory: the path is keyed on the cwd so concurrent
+# sessions in different workspaces don't clobber each other's plans.
+_qc_plan_path() {
+    local cwd_key
+    cwd_key=$(pwd | _qc_hash)
+    echo "$(_qc_plan_dir)/plan-${cwd_key:0:16}"
+}
+
+# Fingerprint a repo's state as HEAD + the sorted set of changed paths.
+# Staging a file (?? -> A) keeps its path, so the normal add-untracked flow
+# between discover and execute does not invalidate the plan; new commits,
+# new files, or reverted files do.
+_qc_repo_state_hash() {
+    local repo="$1"
+    {
+        git -C "$repo" rev-parse HEAD 2>/dev/null || echo "no-head"
+        git -C "$repo" status --porcelain 2>/dev/null | awk '{ $1=""; print }' | sort
+    } | _qc_hash
+}
+
+_qc_normalize_repo_path() {
+    local p="$1"
+    p="${p#./}"
+    p="${p%/}"
+    [ -z "$p" ] && p="."
+    echo "$p"
+}
+
+# Write the plan file from PLAN_REPO_ENTRIES ("rel<TAB>state_hash" items).
+# Echoes the plan id.
+_qc_write_plan() {
+    local start_dir="$1"
+    local plan_path plan_dir created body entry plan_id
+    plan_path=$(_qc_plan_path)
+    plan_dir=$(dirname "$plan_path")
+    mkdir -p "$plan_dir"
+    chmod 700 "$plan_dir" 2>/dev/null || true
+    created=$(date +%s)
+    body=$(
+        echo "created $created"
+        echo "start_dir $start_dir"
+        for entry in ${PLAN_REPO_ENTRIES[@]+"${PLAN_REPO_ENTRIES[@]}"}; do
+            printf 'repo\t%s\n' "$entry"
+        done
+    )
+    plan_id=$(printf '%s' "$body" | _qc_hash)
+    plan_id="${plan_id:0:12}"
+    {
+        echo "version 1"
+        echo "id $plan_id"
+        printf '%s\n' "$body"
+    } > "$plan_path"
+    echo "$plan_id"
+}
+
+# Verify (and consume) the plan for an --execute invocation.
+# Args: $1 = plan id from the caller, remaining = the repo:msg pairs.
+_qc_verify_plan() {
+    local plan_id="$1"; shift
+    local plan_path
+    plan_path=$(_qc_plan_path)
+
+    if [ -z "$plan_id" ]; then
+        log_error "Plan required: multi-repo --execute must reference a confirmed discovery plan."
+        echo ""
+        echo "Two-phase flow:"
+        echo "  1. Run --discover (its JSON output includes plan.id)"
+        echo "  2. Confirm the discovered repo list with the user"
+        echo "  3. Run --execute --plan <plan.id> 'repo:msg' ..."
+        return 1
+    fi
+    if [ ! -f "$plan_path" ]; then
+        log_error "No plan found for this directory (plans are single-use). Re-run --discover."
+        return 1
+    fi
+
+    local file_id created
+    file_id=$(awk '$1=="id"{print $2; exit}' "$plan_path")
+    created=$(awk '$1=="created"{print $2; exit}' "$plan_path")
+    if [ "$file_id" != "$plan_id" ]; then
+        log_error "Plan id mismatch: '$plan_id' does not match the current plan. Re-run --discover and use the fresh plan id."
+        return 1
+    fi
+    local age
+    age=$(( $(date +%s) - created ))
+    if [ "$age" -gt "$PLAN_TTL_SECONDS" ]; then
+        log_error "Plan expired (${age}s old, TTL ${PLAN_TTL_SECONDS}s). Re-run --discover."
+        return 1
+    fi
+
+    # Every repo referenced by the execute pairs must be in the plan and in
+    # the same state as at discovery time.
+    local arg repo norm tag prel phash found current
+    for arg in "$@"; do
+        repo="${arg%%:*}"
+        [ "$repo" = "$arg" ] && continue   # no colon: format error surfaces later
+        norm=$(_qc_normalize_repo_path "$repo")
+        found=""
+        while IFS=$'\t' read -r tag prel phash; do
+            [ "$tag" = "repo" ] || continue
+            if [ "$(_qc_normalize_repo_path "$prel")" = "$norm" ]; then
+                found="$phash"
+                break
+            fi
+        done < "$plan_path"
+        if [ -z "$found" ]; then
+            log_error "Repository '$repo' is not part of the confirmed plan. Re-run --discover."
+            return 1
+        fi
+        current=$(_qc_repo_state_hash "$repo")
+        if [ "$current" != "$found" ]; then
+            log_error "Repository '$repo' changed since discovery (state drift). Re-run --discover."
+            return 1
+        fi
+    done
+
+    # Single use: consume the plan so the same id can't authorize a second run.
+    rm -f "$plan_path"
+    return 0
+}
 
 # Encode a kv-list value into the URL-safe subset defined in
 # docs/designs/machine-readable-commit-format.md §4. Characters outside
@@ -611,6 +761,9 @@ emit_repo_entry() {
     echo '      "changed_files": "'"$changed_files"'"'
     echo -n '    }'
 
+    # Record this repo in the discovery plan (see two-phase plan/confirm).
+    PLAN_REPO_ENTRIES+=("$rel_path"$'\t'"$(_qc_repo_state_hash "$repo_dir")")
+
     LAST_REPO_FILE_COUNT=$file_count
     return 0
 }
@@ -621,9 +774,10 @@ discover_repos() {
     local start_dir
     start_dir=$(pwd)
 
-    # Reset selection-tracking state for this discovery run.
+    # Reset selection-tracking and plan state for this discovery run.
     EXCLUDED_WITH_CHANGES=()
     EXCLUDED_TOTAL_COUNT=0
+    PLAN_REPO_ENTRIES=()
 
     # Load repo selection config if not already loaded (standalone invocation)
     if [[ -z "${REPO_SELECTION_CONFIG:-}" ]] && type -t load_selection &>/dev/null; then
@@ -790,6 +944,18 @@ discover_repos() {
     echo ']'
     echo '  },'
 
+    # Two-phase plan: persist the discovered repo set + per-repo state so
+    # --execute can verify it operates on exactly what the user confirmed.
+    local plan_id
+    plan_id=$(_qc_write_plan "$start_dir")
+    echo '  "plan": {'
+    echo '    "id": "'"$plan_id"'",'
+    echo '    "path": "'"$(_qc_plan_path)"'",'
+    echo '    "ttl_seconds": '"$PLAN_TTL_SECONDS"','
+    echo '    "single_use": true,'
+    echo '    "usage": "confirm the repo list with the user, then run: --execute --plan '"$plan_id"' repo:msg ..."'
+    echo '  },'
+
     echo '  "summary": {'
     echo '    "total_repositories": '"$repo_count"','
     echo '    "total_files": '"$total_files"','
@@ -840,6 +1006,24 @@ preflight_consistency_check() {
 # Arguments: "repo_path:commit_message" pairs
 # Uses git -C to avoid changing working directory
 execute_commits() {
+    # --- Plan gate (two-phase confirm) ---
+    # Execution requires the plan id produced by --discover. This is a
+    # deterministic guard, not a heuristic: without a fresh, matching,
+    # unconsumed plan covering every target repo, nothing is committed.
+    local plan_id=""
+    if [ "${1:-}" = "--plan" ]; then
+        plan_id="${2:-}"
+        shift 2
+    fi
+    if ! _qc_verify_plan "$plan_id" "$@"; then
+        exit 1
+    fi
+    if [ $# -eq 0 ]; then
+        log_error "No commit messages provided"
+        echo "Usage: $0 --execute --plan <plan.id> 'repo1:message1' 'repo2:message2' ..."
+        exit 1
+    fi
+
     local success_count=0
     local failed_count=0
     local skipped_count=0
@@ -1016,34 +1200,14 @@ cwd_has_tracked_changes() {
 
 # Emit one origin URL per line for nested git repos that have changes.
 # Skips nested repos whose remote.origin.url is unset.
-nested_changed_origins() {
-    while IFS= read -r git_dir; do
-        local repo_dir
-        repo_dir=$(dirname "$git_dir")
-        if [ -n "$(git -C "$repo_dir" status --porcelain 2>/dev/null)" ]; then
-            local origin
-            origin=$(git -C "$repo_dir" remote get-url origin 2>/dev/null || true)
-            [ -n "$origin" ] && echo "$origin"
-        fi
-    done < <(find . -mindepth 2 -type d -name ".git" -not -path "*/node_modules/*" 2>/dev/null)
-}
-
 # Decide the recommended default for ambiguous mode.
-# Echoes "multi-repo" when cwd has no origin OR any nested repo with
-# changes has an origin different from cwd's origin. Otherwise echoes
-# "single-repo".
+# Workspace convention: fan-out across nested repositories is an explicit
+# opt-in, never a recommendation. Ambiguous detection therefore always
+# recommends single-repo; multi-repo remains available as a deliberate,
+# user-chosen alternative. (An earlier origin-comparison heuristic
+# recommended multi-repo for no-origin umbrella dirs — exactly backwards
+# for umbrella workspaces where the umbrella is the intended target.)
 recommend_ambiguous_default() {
-    local cwd_origin_url="$1"
-    if [ -z "$cwd_origin_url" ]; then
-        echo "multi-repo"
-        return
-    fi
-    while IFS= read -r nested_origin; do
-        if [ -n "$nested_origin" ] && [ "$nested_origin" != "$cwd_origin_url" ]; then
-            echo "multi-repo"
-            return
-        fi
-    done < <(nested_changed_origins)
     echo "single-repo"
 }
 
@@ -1158,7 +1322,7 @@ main() {
                 shift
                 if [ $# -eq 0 ]; then
                     log_error "No commit messages provided"
-                    echo "Usage: $0 --execute 'repo1:message1' 'repo2:message2' ..."
+                    echo "Usage: $0 --execute --plan <plan.id> 'repo1:message1' 'repo2:message2' ..."
                     exit 1
                 fi
                 execute_commits "$@"
@@ -1167,9 +1331,9 @@ main() {
                 log_error "Multi-repo mode requires --discover or --execute"
                 echo ""
                 echo "Usage:"
-                echo "  $0 --discover                    # List repos with changes (JSON)"
-                echo "  $0 --execute 'repo:msg' ...      # Execute commits"
-                echo "  $0 --single-repo 'message'       # Force single-repo commit"
+                echo "  $0 --discover                              # List repos with changes (JSON, emits plan.id)"
+                echo "  $0 --execute --plan <id> 'repo:msg' ...    # Execute commits (requires plan from --discover)"
+                echo "  $0 --single-repo 'message'                 # Force single-repo commit"
                 exit 1
                 ;;
             *)
