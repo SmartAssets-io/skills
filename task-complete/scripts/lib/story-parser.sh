@@ -343,6 +343,7 @@ get_story_links() {
 #
 # Insert a new story into UserStories.md
 # Inserts before the "## Planned Stories" section or at end
+# (also appends at end when the anchor heading is the file's first line)
 #
 insert_story() {
     local stories_file="$1"
@@ -356,7 +357,10 @@ insert_story() {
     local insert_line
     insert_line=$(grep -n "^## Planned Stories\|^## Story Template" "$stories_file" | head -1 | cut -d: -f1)
 
-    if [[ -n "$insert_line" ]]; then
+    # An anchor on line 1 leaves no room to insert above it: `head -n 0` is an
+    # error on BSD/macOS head, and prepending would push the story above the
+    # document's opening section. Fall back to appending in that case.
+    if [[ -n "$insert_line" ]] && (( insert_line > 1 )); then
         # Insert before the found section
         {
             head -n $((insert_line - 1)) "$stories_file"
