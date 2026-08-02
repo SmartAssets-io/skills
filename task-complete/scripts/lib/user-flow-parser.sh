@@ -288,6 +288,7 @@ get_flow_links() {
 
 # Insert a new flow block before "## Planned Flows" or "## Flow Template",
 # else before the final "## Related Documentation", else at end.
+# An anchor on the file's first line also falls through to the append path.
 insert_flow() {
     local flows_file="$1"
     local flow_md="$2"
@@ -298,7 +299,10 @@ insert_flow() {
     local insert_line
     insert_line=$(grep -n '^## Planned Flows\|^## Flow Template\|^## Related Documentation' "$flows_file" | head -1 | cut -d: -f1)
 
-    if [[ -n "$insert_line" ]]; then
+    # An anchor on line 1 leaves no room to insert above it: `head -n 0` is an
+    # error on BSD/macOS head, and prepending would push the flow above the
+    # document's opening section. Fall back to appending in that case.
+    if [[ -n "$insert_line" ]] && (( insert_line > 1 )); then
         {
             head -n $((insert_line - 1)) "$flows_file"
             echo ""
@@ -505,9 +509,15 @@ update_epic_flow_link() {
             if [[ "$line" =~ ^epic_id:[[:space:]]*${epic_id}$ ]]; then
                 in_target=true
             fi
+            # Replace an existing user_flow: key. If the inject path below already
+            # emitted it (reachable when a hand-written user_flow: sits after
+            # tasks:), swallow the original rather than replacing it, so the block
+            # never ends up with two keys.
             if [[ "$in_target" == true ]] && [[ "$line" =~ ^user_flow: ]]; then
-                echo "user_flow: ${flow_id}"
-                added=true
+                if [[ "$added" == false ]]; then
+                    echo "user_flow: ${flow_id}"
+                    added=true
+                fi
                 continue
             fi
             if [[ "$in_target" == true ]] && [[ "$line" =~ ^tasks: ]] && [[ "$added" == false ]]; then
