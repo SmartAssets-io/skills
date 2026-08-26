@@ -125,8 +125,6 @@ Environment Variables:
     GEMINI_API_KEY        Alternative to GOOGLE_API_KEY
     XAI_API_KEY           Required for xAI Grok provider (or GROK_API_KEY)
     GROK_API_KEY          Alternative to XAI_API_KEY
-    OPENROUTER_API_KEY    Required for OpenRouter provider (multi-model router)
-    OPENROUTER_MODEL      OpenRouter model (default: moonshotai/kimi-k3)
     AWS_ACCESS_KEY_ID     Required for Amazon Bedrock Nova provider
     AWS_SECRET_ACCESS_KEY Required for Amazon Bedrock Nova provider
     AWS_REGION            AWS region for Bedrock (default: us-east-1)
