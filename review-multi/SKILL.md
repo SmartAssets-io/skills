@@ -23,7 +23,7 @@ If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this syn
 Options:
   --create              Create PR/MR first, then review
   --target BRANCH       Target branch for --create (default: dev)
-  --providers LIST      Comma-separated providers (anthropic,openai,google,xai,openrouter)
+  --providers LIST      Comma-separated providers (anthropic,openai,google,xai)
   --model MODEL         Override default model per provider
   --post                Post results to PR/MR (default: display only)
   --json                JSON output
@@ -33,7 +33,7 @@ Options:
 
 # Multi-Agent PR/MR Review
 
-Perform a multi-agent code review using multiple LLM providers (Anthropic, OpenAI, Google, xAI, OpenRouter) and post the aggregated results to a GitHub PR or GitLab MR.
+Perform a multi-agent code review using multiple LLM providers (Anthropic, OpenAI, Google, xAI) and post the aggregated results to a GitHub PR or GitLab MR.
 
 ## Prerequisites
 
@@ -181,12 +181,11 @@ Use only specific providers:
 | `openai` | `OPENAI_API_KEY` | GPT-5.6 Sol — `gpt-5.6-sol` |
 | `google` | `GOOGLE_API_KEY` | Gemini 3.1 Pro — `gemini-3.1-pro-preview` |
 | `xai` | `XAI_API_KEY` | Grok — `grok-4.5` |
-| `openrouter` | `OPENROUTER_API_KEY` | Moonshot Kimi K3 — `moonshotai/kimi-k3` (any OpenRouter model slug works) |
 | `bedrock` | `AWS_PROFILE` or `AWS_ACCESS_KEY_ID` or IAM role | Amazon Nova Pro — `us.amazon.nova-pro-v1:0` |
 | `ollama` | `OLLAMA_HOST` | Local models — `codellama:latest` |
 
 Override the default per provider with `ANTHROPIC_MODEL`, `OPENAI_MODEL`,
-`GEMINI_MODEL`, `XAI_MODEL`, `OPENROUTER_MODEL`, `BEDROCK_MODEL`, or `OLLAMA_MODEL`. Review output
+`GEMINI_MODEL`, `XAI_MODEL`, `BEDROCK_MODEL`, or `OLLAMA_MODEL`. Review output
 reports the model the API actually served (`model`) alongside the configured
 value (`model_requested`); when they differ, display surfaces show both.
 
