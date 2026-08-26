@@ -207,6 +207,15 @@ _register_default_providers() {
         ENABLED_PROVIDERS+=("xai")
     fi
 
+    # OpenRouter (multi-model router; default review model: Moonshot Kimi K3)
+    if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+        PROVIDER_REGISTRY["openrouter"]="cloud"
+        PROVIDER_REGISTRY["openrouter_model"]="${OPENROUTER_MODEL:-moonshotai/kimi-k3}"
+        PROVIDER_REGISTRY["openrouter_key_var"]="OPENROUTER_API_KEY"
+        PROVIDER_REGISTRY["openrouter_enabled"]="true"
+        ENABLED_PROVIDERS+=("openrouter")
+    fi
+
     # Ollama (local)
     if [[ -n "${OLLAMA_HOST:-}" ]] || curl -s --connect-timeout 1 "http://localhost:11434/api/tags" >/dev/null 2>&1; then
         PROVIDER_REGISTRY["ollama"]="local"
@@ -901,6 +910,8 @@ Environment Variables:
     GEMINI_API_KEY       Alternative to GOOGLE_API_KEY
     XAI_API_KEY          API key for xAI Grok (or use GROK_API_KEY)
     GROK_API_KEY         Alternative to XAI_API_KEY
+    OPENROUTER_API_KEY   API key for OpenRouter (multi-model router)
+    OPENROUTER_MODEL     OpenRouter model (default: moonshotai/kimi-k3)
     AWS_ACCESS_KEY_ID    AWS credentials for Amazon Bedrock Nova
     AWS_SECRET_ACCESS_KEY AWS credentials for Amazon Bedrock Nova
     AWS_REGION           AWS region (default: us-east-1)
