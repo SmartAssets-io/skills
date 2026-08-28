@@ -13,10 +13,19 @@
 #                         llm-client requests default to anthropic/claude-opus-4-5,
 #                         review requests default to moonshotai/kimi-k3
 #   OPENROUTER_BASE_URL   Optional. API base URL (default: https://openrouter.ai/api/v1)
-#   OPENROUTER_MAX_TOKENS Optional. Max completion tokens for reviews (default: 4096)
+#   OPENROUTER_MAX_TOKENS Optional. Max completion tokens for reviews (default: 4096).
+#                         On reasoning models this budget covers reasoning tokens
+#                         plus the answer.
 #   OPENROUTER_TIMEOUT    Optional. Review timeout in seconds (overrides
-#                         PROVIDER_TIMEOUT; default 120). Reasoning models can
-#                         need more than the default on large diffs.
+#                         PROVIDER_TIMEOUT; default 300 for reviews). The default
+#                         review model (moonshotai/kimi-k3) is served as a
+#                         reasoning model and can need minutes on large diffs.
+#   OPENROUTER_REASONING_EFFORT
+#                         Optional. Reasoning effort for reviews (default: low).
+#                         Valid: max, xhigh, high, medium, low, minimal, none.
+#                         "low" caps reasoning tokens so the JSON answer is not
+#                         truncated inside OPENROUTER_MAX_TOKENS. Set to "omit"
+#                         to send no reasoning parameter at all.
 #
 # Usage (via llm-client.sh):
 #   source llm-client.sh
@@ -214,6 +223,17 @@ _openrouter_cleanup() {
 OPENROUTER_MODEL="${OPENROUTER_MODEL:-moonshotai/kimi-k3}"
 OPENROUTER_MAX_TOKENS="${OPENROUTER_MAX_TOKENS:-4096}"
 
+# Reviews default to a 300s budget: the default review model is a reasoning
+# model and can need minutes on a review-sized diff. review-providers.sh reads
+# this same variable for its outer watchdog, so one default bounds both the
+# watchdog and the curl call below.
+OPENROUTER_TIMEOUT="${OPENROUTER_TIMEOUT:-300}"
+
+# Cap reasoning effort so reasoning tokens leave room for the JSON answer
+# inside OPENROUTER_MAX_TOKENS. Any value outside the valid set (e.g. "omit")
+# sends no reasoning parameter.
+OPENROUTER_REASONING_EFFORT="${OPENROUTER_REASONING_EFFORT:-low}"
+
 #
 # Get provider name
 #
@@ -286,10 +306,19 @@ Please provide your review as a JSON object."
             ]
         }')
 
+    # OpenRouter normalizes the reasoning parameter across providers and
+    # drops it for models that do not support it. Invalid values silently
+    # omit the field (no stderr: execute_with_timeout merges stderr into
+    # the JSON result).
+    if [[ "$OPENROUTER_REASONING_EFFORT" =~ ^(max|xhigh|high|medium|low|minimal|none)$ ]]; then
+        request_body=$(printf '%s' "$request_body" | \
+            jq --arg effort "$OPENROUTER_REASONING_EFFORT" '. + {reasoning: {effort: $effort}}')
+    fi
+
     # Bound the HTTP call ~5s under the provider timeout so slow responses
     # surface as diagnosable curl timeouts instead of empty output
-    local openrouter_timeout="${OPENROUTER_TIMEOUT:-${PROVIDER_TIMEOUT:-120}}"
-    [[ "$openrouter_timeout" =~ ^[0-9]+$ ]] || openrouter_timeout=120
+    local openrouter_timeout="${OPENROUTER_TIMEOUT:-300}"
+    [[ "$openrouter_timeout" =~ ^[0-9]+$ ]] || openrouter_timeout=300
     local curl_max_time=$(( openrouter_timeout > 10 ? openrouter_timeout - 5 : openrouter_timeout ))
 
     # Make API call, capturing the HTTP status alongside the body
@@ -360,16 +389,24 @@ Please provide your review as a JSON object."
     fi
 
     # Extract the response content
-    local content
+    local content finish_reason
     content=$(printf '%s' "$response" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+    finish_reason=$(printf '%s' "$response" | jq -r '.choices[0].finish_reason // empty' 2>/dev/null)
+
+    # On reasoning models, max_tokens covers reasoning plus the answer. When
+    # reasoning consumes the whole budget the content comes back empty or
+    # truncated with finish_reason=length.
+    local budget_hint="token budget exhausted (finish_reason=length): reasoning likely consumed OPENROUTER_MAX_TOKENS - raise it or lower OPENROUTER_REASONING_EFFORT"
 
     if [[ -z "$content" ]]; then
-        jq -n --arg model "$OPENROUTER_MODEL" '{
+        local empty_error="No content in API response"
+        [[ "$finish_reason" == "length" ]] && empty_error="$budget_hint"
+        jq -n --arg model "$OPENROUTER_MODEL" --arg error "$empty_error" '{
             verdict: "abstain",
             confidence: 0.0,
             issues: [],
             summary: "Empty response from API",
-            error: "No content in API response",
+            error: $error,
             model: $model
         }'
         return 1
@@ -383,15 +420,20 @@ Please provide your review as a JSON object."
         json_result=$(printf '%s' "$content" | grep -o '{.*}' | head -1)
 
         if ! printf '%s' "$json_result" | jq -e '.' >/dev/null 2>&1; then
+            local trunc_error=null
+            if [[ "$finish_reason" == "length" ]]; then
+                trunc_error=$(jq -n --arg e "$budget_hint" '$e')
+            fi
             jq -n \
                 --arg summary "$content" \
                 --arg model "$OPENROUTER_MODEL" \
+                --argjson error "$trunc_error" \
                 '{
                     verdict: "abstain",
                     confidence: 0.5,
                     issues: [],
                     summary: $summary,
-                    error: null,
+                    error: $error,
                     model: $model
                 }'
             return 0
