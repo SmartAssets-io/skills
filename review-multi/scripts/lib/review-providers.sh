@@ -381,7 +381,9 @@ parse_review_response() {
     # configured registry value rather than "unknown"
     local registry_model="${PROVIDER_REGISTRY[${provider}_model]:-unknown}"
 
-    # Normalize response
+    # Normalize response. Preserve the provider error (and error_type when
+    # present) so timeout/truncation diagnostics survive into the report and
+    # providers_completed counts failed providers correctly.
     echo "$response" | jq --arg provider "$provider" --arg verdict "$verdict" --argjson conf "$confidence" --arg registry_model "$registry_model" '
         {
             provider: $provider,
@@ -391,7 +393,8 @@ parse_review_response() {
             confidence: $conf,
             issues: (.issues // []),
             summary: (.summary // "No summary provided"),
-            error: null,
+            error: (.error // null),
+            error_type: (.error_type // null),
             duration_ms: (.duration_ms // 0)
         }
     '
@@ -912,6 +915,9 @@ Environment Variables:
     GROK_API_KEY         Alternative to XAI_API_KEY
     OPENROUTER_API_KEY   API key for OpenRouter (multi-model router)
     OPENROUTER_MODEL     OpenRouter model (default: moonshotai/kimi-k3)
+    OPENROUTER_REASONING_EFFORT
+                         Reasoning effort for OpenRouter reviews (default: low;
+                         set "omit" to send no reasoning parameter)
     AWS_ACCESS_KEY_ID    AWS credentials for Amazon Bedrock Nova
     AWS_SECRET_ACCESS_KEY AWS credentials for Amazon Bedrock Nova
     AWS_REGION           AWS region (default: us-east-1)
@@ -922,7 +928,9 @@ Environment Variables:
     <PROVIDER>_TIMEOUT   Per-provider timeout override, e.g. XAI_TIMEOUT=300
                          (providers that make HTTP calls bound them ~5s under
                          this value so slow responses surface as diagnosable
-                         curl timeouts instead of empty output)
+                         curl timeouts instead of empty output).
+                         OPENROUTER_TIMEOUT defaults to 300 because the default
+                         review model is a reasoning model.
     DEBUG                Set to "true" for debug output
 
 As a library:
