@@ -200,6 +200,11 @@ truncate_diff() {
     # Reserve space for truncation notice
     local notice_size=200
     local available_size=$((max_size - notice_size))
+    # A limit smaller than the notice leaves no room for diff content.
+    # Do not give head(1) a negative or zero count.
+    if [[ $available_size -lt 0 ]]; then
+        available_size=0
+    fi
 
     # Get list of changed files for summary
     local file_list
@@ -209,8 +214,10 @@ truncate_diff() {
 
     # Calculate how much of the diff we can keep
     # Take the first portion up to available_size
-    local truncated_diff
-    truncated_diff=$(echo "$diff" | head -c "$available_size")
+    local truncated_diff=""
+    if [[ $available_size -gt 0 ]]; then
+        truncated_diff=$(echo "$diff" | head -c "$available_size")
+    fi
 
     # Find the last complete file boundary to avoid cutting mid-file
     # Look for the last "diff --git" marker we can include
@@ -218,7 +225,7 @@ truncate_diff() {
     last_diff_pos=$(echo "$truncated_diff" | grep -b -o '^diff --git' | tail -1 | cut -d: -f1 || echo "0")
 
     # If we found a boundary, truncate there for cleaner output
-    if [[ -n "$last_diff_pos" ]] && [[ "$last_diff_pos" -gt $((available_size / 2)) ]]; then
+    if [[ -n "$last_diff_pos" ]] && [[ "$last_diff_pos" -gt 0 ]] && [[ "$last_diff_pos" -gt $((available_size / 2)) ]]; then
         truncated_diff=$(echo "$diff" | head -c "$last_diff_pos")
     fi
 
@@ -701,10 +708,24 @@ main() {
     local reviews
     reviews=$(echo "$reviews_result" | jq '.reviews')
 
+    # Persist results before posting: provider reviews are expensive, and a
+    # posting failure must not lose them. mktemp -d gives an unpredictable,
+    # owner-only (0700) directory; a fixed $$-suffixed name in shared /tmp is
+    # predictable (symlink-plantable) and leaves review content world-readable.
+    local results_dir
+    results_dir=$(mktemp -d "${TMPDIR:-/tmp}/multi-review.XXXXXX")
+    local results_base="${results_dir}/${TARGET//\//_}"
+
     # Aggregate results
     show_progress "Aggregating results"
     local aggregated
-    aggregated=$(aggregate_reviews "$reviews")
+    if ! aggregated=$(aggregate_reviews "$reviews"); then
+        echo "" >&2
+        echo "$reviews" > "${results_base}.reviews.json"
+        log_error "Review not posted: the redaction filter failed"
+        log_info "Provider reviews preserved at: ${results_base}.reviews.json (not redacted)"
+        exit $EXIT_ERROR
+    fi
     show_progress_done
 
     # Get verdict
@@ -723,13 +744,6 @@ main() {
     local markdown
     markdown=$(format_markdown "$aggregated")
 
-    # Persist results before posting: provider reviews are expensive, and a
-    # posting failure must not lose them. mktemp -d gives an unpredictable,
-    # owner-only (0700) directory; a fixed $$-suffixed name in shared /tmp is
-    # predictable (symlink-plantable) and leaves review content world-readable.
-    local results_dir
-    results_dir=$(mktemp -d "${TMPDIR:-/tmp}/multi-review.XXXXXX")
-    local results_base="${results_dir}/${TARGET//\//_}"
     echo "$aggregated" > "${results_base}.json"
     echo "$markdown" > "${results_base}.md"
     log_verbose "Results saved: ${results_base}.json / ${results_base}.md"
@@ -740,6 +754,20 @@ main() {
     elif [[ "$NO_POST" == "true" ]]; then
         echo "$markdown"
     else
+        # Leak gate: aggregate_reviews redacts the review data, so a finding
+        # here is a defect. Do not post text that the filter would change.
+        local leak_lines gate_status=0
+        leak_lines=$(public_text_is_clean "$markdown") || gate_status=$?
+        if [[ $gate_status -eq 2 ]]; then
+            log_error "Review not posted: the redaction filter failed"
+            log_info "Review results preserved at: ${results_base}.md (markdown), ${results_base}.json (JSON)"
+            exit $EXIT_ERROR
+        elif [[ $gate_status -ne 0 ]]; then
+            log_error "Review not posted: the text contains local paths, email addresses, or credentials (lines: $leak_lines)"
+            log_info "Review results preserved at: ${results_base}.md (markdown), ${results_base}.json (JSON)"
+            exit $EXIT_ERROR
+        fi
+
         # Post to PR/MR; guard against `set -e` so a posting failure is
         # reported (with the saved-results path) instead of silently exiting
         show_progress "Posting review comment"

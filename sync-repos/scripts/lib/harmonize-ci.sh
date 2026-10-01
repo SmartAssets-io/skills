@@ -142,6 +142,16 @@ PYEOF
 # Global variables used:
 #   SOURCE_PATH, DRY_RUN, CREATED_FILES
 #
+reference_conformance_report() {
+    local reporter="${SOURCE_PATH}/scripts/check-reference-conformance.py"
+    if [[ -f "$reporter" ]] && command -v uv >/dev/null 2>&1; then
+        uv run --script "$reporter" "$1"
+    else
+        echo '{"status":"unknown","reason":"The profile reporter and uv are required"}'
+        return 1
+    fi
+}
+
 process_markdown_link_check() {
     local repo_path="$1" rel_path="$2"
     local -n _mlc_created=$3
@@ -157,6 +167,10 @@ process_markdown_link_check() {
     [[ ! -f "$gitlab_ci" && ! -d "$gh_workflows" ]] && return
 
     local detect_re='lychee|markdown[-_]?link[-_]?check'
+
+    # Do not infer language permission from a generic propagation request.
+    # Consumer repositories select their own implementation and runtime.
+    log_warning "Only URL checks are propagated. Select reference validation under the repository policy."
 
     # GitLab CI: append canonical job to the existing pipeline
     if [[ -f "$gitlab_ci" && -f "$gitlab_template" ]]; then
@@ -205,5 +219,14 @@ process_markdown_link_check() {
                 fi
             fi
         fi
+    fi
+
+    # A registered CI job is configuration evidence, not proof of a successful run.
+    local reference_report
+    if reference_report=$(reference_conformance_report "$repo_path"); then
+        log_action "OK" "Reference conformance: $reference_report"
+    else
+        log_action "ERROR" "Reference conformance: $reference_report"
+        _mlc_error=true
     fi
 }
