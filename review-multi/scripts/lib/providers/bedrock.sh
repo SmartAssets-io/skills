@@ -68,6 +68,35 @@ bedrock_check() {
 }
 
 #
+# Classify an AWS CLI failure as text that is safe to post
+#
+_bedrock_failure_class() {
+    local exit_code="$1"
+    local stderr_text="$2"
+
+    case "$exit_code" in
+        126) echo "AWS CLI is not executable on this machine"; return 0 ;;
+        127) echo "AWS CLI not installed. Install with: brew install awscli (macOS) or apt install awscli (Linux)"; return 0 ;;
+    esac
+
+    local aws_code
+    aws_code=$(printf '%s' "$stderr_text" | sed -nE 's/.*An error occurred \(([A-Za-z0-9.]+)\).*/\1/p' | head -1)
+    if [[ -n "$aws_code" ]]; then
+        echo "$aws_code"
+        return 0
+    fi
+
+    case "$stderr_text" in
+        *"Unable to locate credentials"*|*"ExpiredToken"*|*"expired"*)
+            echo "AWS credentials not found or expired" ;;
+        *"Could not connect to the endpoint"*|*"Connect timeout"*|*"Read timeout"*)
+            echo "AWS endpoint not reachable" ;;
+        *)
+            echo "unclassified AWS CLI error" ;;
+    esac
+}
+
+#
 # Execute review using Amazon Nova via Bedrock
 #
 bedrock_review() {
@@ -181,16 +210,18 @@ EOF
     # Note: temp_dir cleanup handled by _bedrock_cleanup calls before each return
 
     if [[ $aws_exit_code -ne 0 ]] || [[ -z "$response" ]]; then
-        # Escape error message for JSON
-        local escaped_error
-        escaped_error=$(printf '%s' "$aws_error" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\n')
+        # Report only the failure class. Raw AWS CLI stderr can contain local
+        # paths, account IDs, and role ARNs, and the error goes into the
+        # posted review.
+        local failure_class
+        failure_class=$(_bedrock_failure_class "$aws_exit_code" "$aws_error")
         cat <<EOF
 {
     "verdict": "abstain",
     "confidence": 0.0,
     "issues": [],
-    "summary": "API request failed: ${escaped_error:0:100}",
-    "error": "AWS Bedrock API call failed (exit code $aws_exit_code): $escaped_error",
+    "summary": "API request failed: $failure_class",
+    "error": "AWS Bedrock API call failed (exit code $aws_exit_code): $failure_class",
     "model": "$BEDROCK_MODEL"
 }
 EOF

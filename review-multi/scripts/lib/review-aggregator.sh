@@ -73,6 +73,120 @@ declare -A SEVERITY_ICONS=(
     ["suggestion"]=":white_circle:"
 )
 
+# Root of the repository that holds this library (fallback for SA_GITLAB_PROFILE)
+REVIEW_AGGREGATOR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." 2>/dev/null && pwd)"
+
+# jq definitions for the redaction filter. The literal prefixes come first
+# because the pattern rules change the text that the prefixes must match.
+# A prefix shorter than 4 characters (for example "/") is ignored.
+#
+# A prefix matches only as a full path: the character before it must not be
+# a path character, and the character after it must be "/" or a character
+# that cannot continue the name. Thus HOME=/root does not change
+# packages/root/src, and a HOME prefix does not match the start of a longer
+# user name (the user path rule redacts that path).
+#
+# The email rule skips SSH remotes (git@host:owner/repo) and needs a letter
+# at the start of the domain, so serde@1.0.rc and icon@2x.png stay unchanged.
+#
+# A key must not have a letter or digit directly before or after it, so
+# names such as bitmask-or-merge stay unchanged.
+REDACTION_JQ_DEFS='
+def re_escape:
+    gsub("(?<c>[.*+?^$|()\\[\\]{}\\\\])"; "\\\(.c)");
+def lit($from; $to):
+    if ($from | length) < 4 then .
+    else gsub("(?<![A-Za-z0-9._~-])" + ($from | re_escape) + "(?=[^A-Za-z0-9._~-]|$)"; $to)
+    end;
+def redact_text:
+    lit($workspace; "[WORKSPACE_ROOT]")
+    | lit($repo; "[REPO_ROOT]")
+    | lit($tmpdir; "[TMPDIR]")
+    | lit($home; "~")
+    | gsub("(?<![A-Za-z0-9._~-])/(?<root>Users|home)/[^/\\s\"`<>:,;)]+"; "/\(.root)/[USER]")
+    | gsub("(?<![A-Za-z0-9._~-])(/private)?/var/folders/[A-Za-z0-9_+]+/[A-Za-z0-9_+]+(/T)?"; "[TMPDIR]")
+    | gsub("(?<![A-Za-z0-9._%+-])(?!git@[A-Za-z0-9.-]+:)[A-Za-z0-9._%+-]+@[A-Za-z][A-Za-z0-9-]*(\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}"; "[EMAIL]")
+    | gsub("(?<![A-Za-z0-9])(sk-[A-Za-z0-9_-]{20,}|xai-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}|glpat-[A-Za-z0-9_-]{20,})(?![A-Za-z0-9])"; "[REDACTED]");
+'
+
+#
+# Run jq with the redaction definitions and the local prefixes
+#
+_redaction_jq() {
+    local options="$1"
+    local program="$2"
+
+    local workspace="${SA_GITLAB_PROFILE:-$REVIEW_AGGREGATOR_ROOT}"
+    local repo
+    repo=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    local tmpdir="${TMPDIR:-}"
+    local home="${HOME:-}"
+
+    jq "$options" \
+        --arg workspace "${workspace%/}" \
+        --arg repo "${repo%/}" \
+        --arg tmpdir "${tmpdir%/}" \
+        --arg home "${home%/}" \
+        "${REDACTION_JQ_DEFS} ${program}"
+}
+
+#
+# Redact local paths, email addresses, and credentials from public text
+#
+# Reads text from stdin and writes the redacted text to stdout. The filter is
+# idempotent: redacted text passes through with no change.
+#
+redact_public_text() {
+    _redaction_jq -Rsj 'redact_text'
+}
+
+#
+# Redact each string value in a JSON document
+#
+redact_public_json() {
+    local json="$1"
+
+    local redacted
+    if ! redacted=$(printf '%s' "$json" | _redaction_jq -c \
+        'walk(if type == "string" then redact_text else . end)'); then
+        return 1
+    fi
+
+    # jq can stop with no output. A JSON document never redacts to nothing.
+    if [[ -n "$json" && -z "$redacted" ]]; then
+        return 1
+    fi
+
+    printf '%s\n' "$redacted"
+}
+
+#
+# Check that the redaction filter finds nothing to redact in the text
+#
+# Returns 0 when the text is clean. When the text has unredacted data, prints
+# the line numbers that contain it and returns 1. The output has no matched
+# text, because a match can be a credential. Returns 2 when the filter fails.
+#
+public_text_is_clean() {
+    local text="$1"
+
+    local redacted
+    if ! redacted=$(printf '%s' "$text" | redact_public_text); then
+        return 2
+    fi
+    if [[ -n "$text" && -z "$redacted" ]]; then
+        return 2
+    fi
+
+    if [[ "$redacted" == "$text" ]]; then
+        return 0
+    fi
+
+    diff <(printf '%s\n' "$text") <(printf '%s\n' "$redacted") |
+        sed -nE 's/^([0-9]+(,[0-9]+)?)[acd].*/\1/p' | paste -sd ' ' -
+    return 1
+}
+
 #
 # Calculate consensus verdict from multiple reviews
 #
@@ -378,7 +492,8 @@ aggregate_reviews() {
     ')
 
     # Build final result
-    jq -n \
+    local result
+    result=$(jq -n \
         --argjson consensus "$consensus" \
         --argjson issues "$issues" \
         --argjson stats "$issue_stats" \
@@ -390,7 +505,16 @@ aggregate_reviews() {
             issue_stats: $stats,
             providers: $providers,
             combined_summary: $summary
-        }'
+        }')
+
+    # The result goes into the posted review and the JSON summary. Provider
+    # errors and reviewer text can contain local paths or credentials.
+    local redacted
+    if ! redacted=$(redact_public_json "$result"); then
+        echo "ERROR: the redaction filter failed on the aggregated review" >&2
+        return 1
+    fi
+    printf '%s\n' "$redacted" | jq '.'
 }
 
 #
