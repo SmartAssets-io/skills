@@ -26,6 +26,9 @@ usage() {
     cat <<'EOF'
 /cbc <subcommand> [arguments]
 
+  attributes snapshot|lint [--cached]
+  attributes compare <snapshot> [--cached]
+            Inspect effective hierarchical policy without changing attributes.
   identify  [--scope diff|epic <EID>] [--files "a b c"] [--base <ref>] [--json]
             List CbC-mandatory files in scope (default: working diff vs HEAD).
   verify    <artifact> [--adapter mock|agentic|embedded] [--claim PATH] [--prover NAME]
@@ -35,6 +38,10 @@ usage() {
   discharge [--scope diff|epic <EID>] [--files "a b c"] [--strict] [--json]
             Gate: every in-scope CbC-mandatory artifact must be discharged or
             waived. --strict exits non-zero when any remain undischarged.
+  acceptance-payload <artifact>
+            Print the unsigned binding for independent maintainer review.
+  accept    <artifact> --approval PATH --signature PATH
+            Import a signed approval from an authorized maintainer.
   waive     <artifact> --reason TEXT
             Record an explicit waiver (rationale) against an artifact.
 
@@ -48,11 +55,20 @@ main() {
     local sub="${1:-}"
     if [[ $# -gt 0 ]]; then shift; fi
     case "$sub" in
+        attributes)
+            python3 "$SCRIPT_DIR/lib/cbc-attributes.py" "$@"
+            ;;
         identify)
             cbc_identify "$@"
             ;;
         verify)
             cbc_verify "$@"
+            ;;
+        acceptance-payload)
+            cbc_acceptance_payload "$@"
+            ;;
+        accept)
+            cbc_accept "$@"
             ;;
         status)
             cbc_status "$@"

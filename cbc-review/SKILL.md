@@ -19,10 +19,13 @@ If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this syn
 
 ```
 /cbc:review [--base <ref>] [--config <path>] [--json]
+            [--root-only] [--acceptance-required]
 
   --base <ref>     Only consider files changed vs <ref> (default: all tracked files)
   --config <path>  Heuristics config (default: scripts/lib/cbc-critical-patterns.jsonc)
-  --json           Emit a JSON array of candidates instead of the human proposal
+  --json           Emit candidates with their owner destination and exact rule.
+  --root-only      Route new rules to the root policy file.
+  --acceptance-required  Propose required acceptance with each new mandatory rule.
 
 Pi: /skill:cbc-review or /cbc-review
 ```
@@ -46,12 +49,25 @@ use `/cbc:scaffold` / `/skill:cbc-scaffold`.
 "scripts/cbc-identify-critical.sh" [--base <ref>] [--config <path>] [--json]
 ```
 
+## Hierarchical proposals
+
+The optional `attribute_owners` array in the scanner configuration routes new rules only.
+The nearest declared ancestor owns a proposal.
+Without a declared owner, the scanner selects the nearest ancestor policy file, then the root.
+JSON proposals include `attributes_file`, `pattern`, `rule`, and `acceptance_required`.
+Exact-file patterns start with a slash and are relative to the destination file.
+The scanner preserves inherited acceptance and does not rewrite existing rules.
+
+Use `--root-only` for root-only proposals.
+Use `--acceptance-required` to add required acceptance explicitly.
+Run `cbc attributes lint` to inspect effective policy and advisory hierarchy diagnostics.
+Git remains the sole source of verification obligations.
+
 ## Workflow
 
 1. Run `/cbc:review` to identify candidate critical files.
 2. Review the risk, churn, LOC, and reason for each proposal.
-3. Either manually append accepted lines to `.gitattributes`, or run
-   `/cbc:scaffold` if you want the deterministic scaffold/apply step.
+3. Append accepted rules to their proposed destination files, or run `/cbc:scaffold` to apply the proposals.
 4. Run `/cbc:main identify` or legacy `/cbc identify` to confirm tagged files are in
    scope, then `/cbc:verify` to discharge claims.
 

@@ -191,29 +191,21 @@ github_get_file_diff() {
 github_build_review_context() {
     local pr_info="$1"
 
-    local repo_name pr_title pr_description target_branch file_count additions deletions
-
+    local repo_name
     repo_name=$(github_get_repo_info)
-    pr_title=$(echo "$pr_info" | jq -r '.title // "Unknown"')
-    # Allow up to 4000 chars for description to give reviewers full context
-    pr_description=$(echo "$pr_info" | jq -r '.body // ""' | head -c 4000)
-    target_branch=$(echo "$pr_info" | jq -r '.baseRefName // "main"')
-    file_count=$(echo "$pr_info" | jq -r '.changedFiles // 0')
-    additions=$(echo "$pr_info" | jq -r '.additions // 0')
-    deletions=$(echo "$pr_info" | jq -r '.deletions // 0')
 
-    cat <<EOF
-{
-    "repo_name": "$repo_name",
-    "pr_title": "$pr_title",
-    "pr_description": $(echo "$pr_description" | jq -Rs '.'),
-    "target_branch": "$target_branch",
-    "file_count": "$file_count",
-    "additions": $additions,
-    "deletions": $deletions,
-    "platform": "github"
-}
-EOF
+    # Build with jq so PR metadata is escaped, never interpolated into JSON.
+    # Allow up to 4000 chars for description to give reviewers full context
+    echo "$pr_info" | jq --arg repo_name "$repo_name" '{
+        repo_name: $repo_name,
+        pr_title: (.title // "Unknown"),
+        pr_description: ((.body // "") | .[0:4000]),
+        target_branch: (.baseRefName // "main"),
+        file_count: ((.changedFiles // 0) | tostring),
+        additions: ((.additions // 0) | tonumber? // 0),
+        deletions: ((.deletions // 0) | tonumber? // 0),
+        platform: "github"
+    }'
 }
 
 #

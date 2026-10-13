@@ -51,7 +51,7 @@ cbc_discharge() {
     while IFS= read -r path; do
         [[ -z "$path" ]] && continue
         total=$((total + 1))
-        st="$(cbc_ledger_status "$path")"
+        st="$(cbc_gate_status "$path")"
         case "$st" in
             discharged|waived) : ;;
             *) gaps=$((gaps + 1)) ;;
@@ -98,6 +98,30 @@ cbc_waive() {
 
     local by path
     by="$(git config user.email 2>/dev/null || echo unknown)"
-    path="$(cbc_ledger_waive "$artifact" "$reason" "$by")"
+    path="$(cbc_ledger_waive "$artifact" "$reason" "$by")" || return 3
     echo "cbc waive: $artifact -> waived; evidence: $path"
+    echo "  gate: $(cbc_gate_status "$artifact")"
+}
+
+# Import only independently signed approval. Never sign or infer approval here.
+cbc_accept() {
+    local artifact="${1:-}" approval="" signature=""
+    [[ -n "$artifact" ]] || return 3
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --approval|--signature)
+                [[ $# -ge 2 && -n "$2" ]] || return 3
+                if [[ "$1" == --approval ]]; then approval="$2"; else signature="$2"; fi
+                shift 2 ;;
+            *) echo "cbc accept: unknown option '$1'" >&2; return 3 ;;
+        esac
+    done
+    [[ -n "$approval" && -n "$signature" ]] || { echo "cbc accept: --approval and --signature are required" >&2; return 3; }
+    cbc_acceptance_tool accept "$artifact" "$(cbc_ledger_path "$artifact")" "$approval" "$signature"
+}
+
+cbc_acceptance_payload() {
+    [[ $# -eq 1 ]] || { echo "cbc acceptance-payload: artifact required" >&2; return 3; }
+    cbc_acceptance_tool payload "$1" "$(cbc_ledger_path "$1")"
 }

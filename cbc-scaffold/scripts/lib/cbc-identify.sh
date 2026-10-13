@@ -76,9 +76,9 @@ _cbc_filter_mandatory() {
 
     # git check-attr emits "<path>: <attr>: <value>" per requested attribute.
     local out
-    out=$(git check-attr cbc cbc-weight -- "${paths[@]}" 2>/dev/null) || return 0
+    out=$(git check-attr cbc cbc-weight cbc-acceptance -- "${paths[@]}" 2>/dev/null) || return 3
 
-    local -A cbc_val=() weight_val=()
+    local -A cbc_val=() weight_val=() acceptance_val=()
     local line val rest attr path
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
@@ -89,11 +89,18 @@ _cbc_filter_mandatory() {
         case "$attr" in
             cbc)        cbc_val[$path]="$val" ;;
             cbc-weight) weight_val[$path]="$val" ;;
+            cbc-acceptance) acceptance_val[$path]="$val" ;;
         esac
     done <<< "$out"
 
     local p w
     for p in "${paths[@]}"; do
+        case "${acceptance_val[$p]:-}" in
+            unspecified) ;;
+            required)
+                [[ "${cbc_val[$p]:-}" == mandatory ]] || { echo "cbc identify: acceptance requires cbc=mandatory: $p" >&2; return 3; } ;;
+            *) echo "cbc identify: invalid cbc-acceptance policy: $p" >&2; return 3 ;;
+        esac
         if [[ "${cbc_val[$p]:-}" == "mandatory" ]]; then
             w="${weight_val[$p]:-}"
             [[ "$w" == "unspecified" || -z "$w" ]] && w="medium"

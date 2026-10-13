@@ -365,28 +365,19 @@ gitlab_get_mr_files() {
 gitlab_build_review_context() {
     local mr_info="$1"
 
-    local repo_name mr_title mr_description target_branch file_count additions deletions
-
+    local repo_name
     repo_name=$(gitlab_get_project_path)
-    mr_title=$(echo "$mr_info" | jq -r '.title // "Unknown"')
+
+    # Build with jq so MR metadata is escaped, never interpolated into JSON.
     # Allow up to 4000 chars for description to give reviewers full context
-    mr_description=$(echo "$mr_info" | jq -r '.description // ""' | head -c 4000)
-    target_branch=$(echo "$mr_info" | jq -r '.target_branch // "main"')
-
-    # Get stats from diff_stats or changes_count
-    local changes_count
-    changes_count=$(echo "$mr_info" | jq -r '.changes_count // "0"')
-
-    cat <<EOF
-{
-    "repo_name": "$repo_name",
-    "pr_title": "$mr_title",
-    "pr_description": $(echo "$mr_description" | jq -Rs '.'),
-    "target_branch": "$target_branch",
-    "file_count": "$changes_count",
-    "platform": "gitlab"
-}
-EOF
+    echo "$mr_info" | jq --arg repo_name "$repo_name" '{
+        repo_name: $repo_name,
+        pr_title: (.title // "Unknown"),
+        pr_description: ((.description // "") | .[0:4000]),
+        target_branch: (.target_branch // "main"),
+        file_count: ((.changes_count // "0") | tostring),
+        platform: "gitlab"
+    }'
 }
 
 #

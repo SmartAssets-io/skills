@@ -19,10 +19,13 @@ If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this syn
 
 ```
 /review:identify-critical [--base <ref>] [--config <path>] [--json]
+                          [--root-only] [--acceptance-required]
 
   --base <ref>     Only consider files changed vs <ref> (default: all tracked files)
   --config <path>  Heuristics config (default: scripts/lib/cbc-critical-patterns.jsonc)
-  --json           Emit a JSON array of candidates instead of the human proposal
+  --json           Emit candidates with their owner destination and exact rule.
+  --root-only      Route new rules to the root policy file.
+  --acceptance-required  Propose required acceptance with each new mandatory rule.
 
 Proposes cbc=mandatory .gitattributes tags; never writes .gitattributes.
 ```
@@ -84,20 +87,31 @@ Proposed CbC-mandatory tags (2 candidate(s)):
   high    src/consensus/vote.rs    (risk=3 churn=12 loc=420  consensus / safety-critical)
   medium  contracts/escrow.move    (risk=3 churn=2  loc=88   smart-contract code)
 
-Proposed .gitattributes additions:
-  src/consensus/vote.rs   cbc=mandatory cbc-weight=high
-  contracts/escrow.move   cbc=mandatory cbc-weight=medium
+Proposed .gitattributes additions (destination: exact rule):
+  .gitattributes: /src/consensus/vote.rs cbc=mandatory cbc-weight=high
+  .gitattributes: /contracts/escrow.move cbc=mandatory cbc-weight=medium
 ```
 
-Use `--json` for a machine-readable array (`{path, weight, score, risk, churn, loc, reason}`).
+Use `--json` for a machine-readable array.
+Each candidate includes scoring fields, `attributes_file`, `pattern`, `rule`, and `acceptance_required`.
+
+The optional `attribute_owners` array routes proposals to the nearest declared ancestor.
+Without a declared owner, the scanner selects the nearest ancestor policy file, then the root.
+New exact-file patterns start with a slash and are relative to the destination file.
+Existing rules and inherited acceptance remain unchanged.
+
+`--root-only` selects root authoring.
+`--acceptance-required` proposes required acceptance explicitly.
+Git remains the sole resolver of effective policy.
 
 ## Workflow
 
 1. Run `/review:identify-critical` (optionally `--base <ref>` to scope to a change).
 2. Review the proposed tags; edit `scripts/lib/cbc-critical-patterns.jsonc`
    if the heuristics over- or under-reach.
-3. Append the accepted lines to `.gitattributes` and commit.
-4. `/cbc:main identify` (or legacy `/cbc identify`) then resolves those tags;
+3. Append accepted rules to their proposed destination files.
+4. Run `cbc attributes lint` to inspect effective policy and advisory hierarchy diagnostics.
+5. `/cbc:main identify` (or legacy `/cbc identify`) then resolves those tags;
    `/cbc:verify verify` / `/cbc:verify discharge` enforce them at the gate.
 
 ## Related

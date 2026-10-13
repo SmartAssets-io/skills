@@ -521,6 +521,77 @@ enrich_template() {
 }
 
 #
+# Print the relative path from a base directory to a target directory.
+# Both directories must exist. Symlinks resolve to physical paths.
+#
+# Arguments:
+#   $1 - Target directory
+#   $2 - Base directory
+#
+_harmonize_relpath() {
+    local target base
+    target="$(cd -P "$1" 2>/dev/null && pwd)" || return 1
+    base="$(cd -P "$2" 2>/dev/null && pwd)" || return 1
+
+    local common="$base" up=""
+    while [[ "$target" != "$common" && "$target" != "$common"/* && "$common" != "/" ]]; do
+        common="$(dirname "$common")"
+        up="../${up}"
+    done
+    local rest="${target#"$common"}"
+    rest="${rest#/}"
+
+    local result="${up}${rest}"
+    result="${result%/}"
+    echo "${result:-.}"
+}
+
+#
+# Replace the [RELATIVE_PATH] placeholder with the path from a target
+# repository to the workspace root (the parent of the source profile).
+#
+# Sections that keep [RELATIVE_PATH] count as unfilled placeholders, so the
+# merge never adds or updates them. A resolved copy lets standard sections
+# that contain cross-reference records propagate with a working checkout.
+#
+# Arguments:
+#   $1 - Template file path
+#   $2 - Target repository path
+#   $3 - Source profile path (e.g., SOURCE_PATH)
+#
+# Output:
+#   Path to a resolved temporary file (caller must clean up)
+#
+# Returns:
+#   0 on success (resolved file created)
+#   1 if the template has no placeholder or a path cannot resolve
+#
+resolve_relative_path_placeholder() {
+    local template_file="$1" repo_path="$2" source_root="$3"
+
+    [[ -f "$template_file" ]] || return 1
+    grep -qF '[RELATIVE_PATH]' "$template_file" || return 1
+
+    local source_physical workspace_root rel_path
+    source_physical="$(cd -P "$source_root" 2>/dev/null && pwd)" || return 1
+    workspace_root="$(dirname "$source_physical")"
+    rel_path="$(_harmonize_relpath "$workspace_root" "$repo_path")" || return 1
+
+    local resolved_file
+    resolved_file=$(mktemp "${TMPDIR:-/tmp}/harmonize-resolved-XXXXXX") || return 1
+    mv "$resolved_file" "${resolved_file}.md"
+    resolved_file="${resolved_file}.md"
+
+    local content
+    content="$(cat "$template_file"; printf x)"
+    content="${content%x}"
+    printf '%s' "${content//\[RELATIVE_PATH\]/$rel_path}" > "$resolved_file"
+
+    echo "$resolved_file"
+    return 0
+}
+
+#
 # Extract a specific ## section from a markdown file
 #
 # Arguments:

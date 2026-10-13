@@ -15,7 +15,14 @@ For English technical prose, obey the [Simplified Technical English policy](#sim
 Apply the policy to text that this command creates or substantially rewrites.
 Machine-significant and quoted text remains exempt.
 Honor explicit non-English requests.
-For committed prompt or policy files, run the repository STE Check and complete a human STE Review.
+For prompt or policy files in this commit, run the repository STE Check.
+Review the changed prose without claiming human review or full ASD-STE100 conformance.
+
+A valid commit invocation supplies commit consent.
+Human STE Review is separate from commit authorization.
+If human STE Review is not confirmed, report it as pending in the commit result.
+Do not block the commit or ask for another confirmation solely because that review is pending.
+Keep all other required safety checks and approval prompts.
 
 ## Quick Help
 
@@ -58,13 +65,68 @@ This skill requires explicit user invocation. It must not be triggered proactive
   `<command-name>/quick-commit</command-name>`,
   `<command-name>/git:commit</command-name>`,
   `<command-name>/skill:git-commit</command-name>`, or
-  `<command-name>/git-commit</command-name>`; or
+  `<command-name>/git-commit</command-name>`.
 - Pi has injected the selected skill payload for this turn, visible as
   `<skill name="git-commit" ...>` or `<skill name="quick-commit" ...>`.
 
 Do not require the literal slash command in addition to a Pi selected-skill
 payload. Do not proceed from ordinary prose such as "please commit" unless one
 of the accepted command or selected-skill signals above is present.
+
+---
+
+## Pi structured workflow
+
+In Pi, use this workflow instead of the shell workflows below.
+
+1. Use `sa_git_inspect` to examine repository status.
+2. Use its `discover` action when the user requests multiple repositories.
+3. Ask about untracked files. Use `sa_git_stage` only for approved untracked files.
+4. Request `action: diff` and review every changed file.
+5. Follow each `next_cursor` with `action: continue` and `cursor` until `complete` is true.
+6. Run `sa_git_check` without a file filter for each repository.
+7. Prepare the commit message after the complete diff review and required checks.
+8. For multiple repositories, use `sa_git_plan` with the exact repositories and message.
+9. Use `sa_git_commit` once for each approved repository.
+10. Report each result and stop.
+
+Diff pages contain `text`, `encoding`, `offset`, `next_cursor`, and `complete`.
+The default `view: head` includes staged additions and unstaged tracked modifications.
+Mixed staging does not require index cleanup, restaging, or another approval.
+
+Use literal `paths` to filter a diff, or select `view: staged` or `view: worktree`.
+A complete filtered diff does not prove that you reviewed all changed files.
+Use `limit` to select a serialized page size from 1024 to 30000 bytes.
+Join page text without separators. Parse the joined text only when `encoding` is `json`.
+If repository state changes or a cursor expires, repeat the original inspection.
+
+The check tool runs the canonical STE and reference checkers from the installed profile.
+The check tool does not run checker programs supplied by the target repository.
+Successful checks cover changed Markdown and reference files and bind to repository state.
+
+The STE Check covers changed prompt and policy files and requires policy markers.
+Use `checker: ste` for additional Markdown diagnostics.
+A repository STE baseline retains its complete coverage scope.
+Diagnostic file filters and single-checker results do not replace complete required checks.
+
+Failed checks, missing dependencies, and unavailable checker adapters block an applicable commit.
+Repeat checks after file changes. Do not replace a blocked check with a shell command.
+Human STE Review remains separate. Report pending review without requesting another commit confirmation.
+
+Do not run Git mutation commands or legacy wrappers through shell tools in Pi.
+The commit tool includes tracked changes automatically.
+Each plan requires explicit UI approval and permits one operation per repository.
+
+Local commits without executable integrations do not require shell isolation.
+Hooks, filters, signing programs, and pushes still require verified adapters.
+If a required adapter is unavailable, stop and report the blocker.
+
+If structured Git tools are missing, stop and report the missing tools.
+Ask the user to reload or restart Pi with the guard enabled.
+Do not use another tool to bypass the guard.
+
+<!-- non-pi-workflow:start -->
+The remaining sections apply to non-Pi harnesses.
 
 ---
 
@@ -76,7 +138,7 @@ You are helping the user create git commits (single-repo or multi-repo mode).
 |--------|---------|----------|
 | `~/.claude` | `claude` / `claude-safe` | Restrictive hooks block direct git commands. Use `/quick-commit` or `/git:commit` for commits (requires user permission approval) |
 | `~/.claude-agentic` | `claude-agentic` | No restrictive hooks. Direct git commands allowed, but this command still provides intelligent commit messages |
-| Pi | `pi` | Invoke as `/skill:git-commit` or `/git-commit`. Pi does not load Claude Code hooks, so rely on explicit invocation and review script actions before approving them. |
+| Pi | `pi` | Use the Pi structured workflow above. Local commits require matching invocation and capability checks. Executable integrations require verified adapters. |
 
 **Repo selection**: In multi-repo mode, if a `.multi-repo-selection.jsonc` config exists in the workspace root (created by `/multi-repo-sync --wizard`), discovery will only show repos matching the selection. Set `MULTI_REPO_ALL=true` to bypass.
 
@@ -726,6 +788,7 @@ MULTI_REPO=true scripts/git-commit.sh --execute --plan <plan.id> "repo:msg" ...
 **Note**: A deterministic safeguard that Claude cannot bypass would require Claude Code enhancements. The current hook-based approach relies on users reading and following the permission prompt.
 
 **Known Issue**: Claude Code caches permission decisions in memory for the session. Once a user approves the hook prompt, subsequent calls to `quick-commit.sh` bypass the hook entirely - even after the file-based allow rule is cleaned up. This means the AI can potentially run `quick-commit.sh` without the hook prompting for the rest of the session. See: [permission cache bypass](https://gitlab.com/smart-assets.io/gitlab-profile/-/blob/master/docs/2026-01-31-claude-code-permission-cache-bypass.md)
+<!-- non-pi-workflow:end -->
 
 ---
 
