@@ -435,7 +435,7 @@ parse_single_task() {
 
     # Extract fields using a state machine to handle multiline strings
     local id="" title="" status="" description="" claimed_by="" claimed_at="" blocked_by="" completed_date=""
-    local unit_tests="" completion_gaps=""
+    local unit_tests="" completion_gaps="" files_json="[]" list_field=""
     local in_multiline=false
     local multiline_field=""
     local multiline_content=""
@@ -444,6 +444,7 @@ parse_single_task() {
         # Check if this is a top-level field (not indented, has colon)
         if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*): ]]; then
             local field_name="${BASH_REMATCH[1]}"
+            list_field=""
             local field_value="${line#*: }"
             field_value="${field_value#\"}"
             field_value="${field_value%\"}"
@@ -473,9 +474,30 @@ parse_single_task() {
                     claimed_at) claimed_at="$field_value" ;;
                     completed_date) completed_date="$field_value" ;;
                     blocked_by) blocked_by="$field_value" ;;
-                    unit_tests) unit_tests="$field_value" ;;
+                    files)
+                        local raw="${line#*:}"
+                        raw="${raw#"${raw%%[![:space:]]*}"}"
+                        if [[ -z "$raw" ]]; then
+                            list_field="files"
+                        else
+                            files_json=$(_ep_bracket_list_to_json "$raw")
+                        fi ;;
+                    unit_tests)
+                        unit_tests="${line#*:}"
+                        unit_tests="${unit_tests#"${unit_tests%%[![:space:]]*}"}"
+                        [[ -z "$unit_tests" ]] && list_field="unit_tests" ;;
+
                     completion_gaps) completion_gaps="$field_value" ;;
                 esac
+            fi
+        elif [[ -n "$list_field" && "$line" =~ ^[[:space:]]+-[[:space:]]+(.+) ]]; then
+            local item="${BASH_REMATCH[1]}"
+            item="${item%\"}"; item="${item#\"}"
+            item="${item%\'}"; item="${item#\'}"
+            if [[ "$list_field" == files ]]; then
+                files_json=$(jq -cn --argjson items "$files_json" --arg item "$item" '$items + [$item]')
+            else
+                unit_tests+="${unit_tests:+,}$item"
             fi
         elif [[ "$in_multiline" == true ]]; then
             # Accumulate multiline content (strip leading spaces for description)
@@ -546,6 +568,7 @@ parse_single_task() {
         json+=",\"blocked_by\":[]"
     fi
 
+    json+=",\"files\":$files_json"
     json+=",\"unit_tests\":$(_ep_bracket_list_to_json "$unit_tests")"
     json+=",\"completion_gaps\":$(_ep_bracket_list_to_json "$completion_gaps")"
 

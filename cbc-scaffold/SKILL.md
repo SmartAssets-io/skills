@@ -19,11 +19,14 @@ If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this syn
 
 ```
 /cbc:scaffold [--base <ref>] [--config <path>] [--dry-run] [--no-tags]
+              [--root-only] [--acceptance-required]
 
   --base <ref>     Scope tag proposals to files changed vs <ref>.
   --config <path>  Heuristics config for cbc-identify-critical.sh.
   --dry-run        Show planned directory and .gitattributes changes only.
-  --no-tags        Create scaffolding only; do not run/apply tag proposals.
+  --no-tags        Create scaffolding only. Do not apply tag proposals.
+  --root-only      Write new rules in the root policy file.
+  --acceptance-required  Add required acceptance to each new mandatory rule.
 
 Pi: /skill:cbc-scaffold or /cbc-scaffold
 ```
@@ -40,31 +43,45 @@ It is the bootstrap/setup counterpart to `/cbc:review`.
 
 The deterministic backing script:
 
-1. Creates `docs/cbc-evidence/.gitkeep` for verification evidence records.
-2. Creates `docs/claims/.gitkeep` for claim/specification documents.
-3. Ensures `.gitattributes` exists.
-4. Runs `cbc-identify-critical.sh --json`.
-5. Appends every candidate as:
+1. Runs `cbc-identify-critical.sh --json` to obtain routed proposals.
+2. Validates every destination and proposed mandatory-and-acceptance combination before writing.
+3. Appends new exact-file rules to their owner policy files.
+4. Creates `docs/cbc-evidence/.gitkeep` for verification evidence records.
+5. Creates `docs/claims/.gitkeep` for claim documents.
+
+New rules use this form:
 
 ```gitattributes
-path/to/file cbc=mandatory cbc-weight=high|medium|low
+/path/to/file cbc=mandatory cbc-weight=high
 ```
 
-Existing tags are preserved; the script only appends missing exact lines.
-Use `--dry-run` to preview or `--no-tags` to create only the scaffold.
+The script preserves existing rules and appends missing exact lines.
+The optional `attribute_owners` array routes new rules to the nearest declared ancestor.
+Without a declared owner, the writer uses the nearest ancestor policy file, then the root.
+The writer preserves index-backed rules when their working-tree file is missing.
+The writer rejects proposals that a deeper exception overrides.
+
+Use `--root-only` to select root authoring.
+Use `--acceptance-required` to add required acceptance to each new mandatory rule.
+Without that option, the writer preserves inherited acceptance without adding a requirement.
+Use `--dry-run` to preview changes.
+Use `--no-tags` to create only the evidence and claim directories.
 
 ## Usage
 
 ```bash
-"scripts/cbc-scaffold.sh" [--base <ref>] [--config <path>] [--dry-run] [--no-tags]
+"scripts/cbc-scaffold.sh" --dry-run
+"scripts/cbc-scaffold.sh" --config patterns.jsonc --acceptance-required
 ```
 
 ## Safety
 
-This command intentionally mutates repository files when run without `--dry-run`:
-`.gitattributes`, `docs/cbc-evidence/.gitkeep`, and `docs/claims/.gitkeep`.
-Only run it when the user explicitly requested CbC scaffolding/tag application.
+Without `--dry-run`, this command changes owner `.gitattributes` files and creates the evidence and claim directories.
+The command rejects unsafe authoring paths and symlinks.
+Run this command only when the user explicitly requests CbC scaffolding or tag application.
 Review the resulting diff before committing.
+Use `cbc attributes snapshot`, `compare`, and `lint` before policy redistribution.
+The command does not move evidence or approval history.
 
 ## Related
 

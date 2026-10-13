@@ -13,7 +13,7 @@
 #   4. Flip status to `complete` (+ completed_date: YYYY-MM-DD on tasks).
 #
 # --strict: refuse to mark complete if any gaps exist. Exits non-zero.
-# --force:  bypass --strict refusal.
+# --force: bypass non-CbC --strict refusal. Mandatory CbC gaps always block.
 # --no-stamp: skip writing completion_gaps even when gaps exist.
 #
 # Dependencies: jq, bash 4+, integrity-walker.sh + sibling parsers.
@@ -57,11 +57,11 @@ Options:
   --unit-tests p1,p2,...   (task only) Write this comma-separated list into the
                            task's unit_tests: field before validation.
   --strict                 Refuse to complete if any integrity gaps exist.
-  --force                  Bypass --strict refusal (logs a warning).
+  --force                  Bypass non-CbC --strict refusal (logs a warning).
   --no-stamp               Do not write completion_gaps: into YAML.
   --help, -h               Show this help.
 
-Default: warn on gaps, stamp completion_gaps:, then mark complete.
+Default: block mandatory CbC gaps. Warn and stamp other gaps before completion.
 
 Environment:
   TODOS_FILE               override docs/ToDos.md
@@ -321,6 +321,8 @@ mark_task_complete() {
         fi
     fi
 
+    _require_cbc_complete "$result"
+
     # 3. Stamp completion_gaps (skip with --no-stamp)
     if [[ "$no_stamp" != "true" ]]; then
         local gaps_yaml
@@ -375,6 +377,8 @@ mark_epic_complete() {
         fi
     fi
 
+    _require_cbc_complete "$result"
+
     if [[ "$no_stamp" != "true" ]]; then
         local gaps_yaml
         gaps_yaml=$(_render_yaml_list "$(echo "$result" | jq '.gaps')")
@@ -383,6 +387,14 @@ mark_epic_complete() {
 
     _set_epic_field "$TODOS_FILE" "$epic_id" "status" "complete"
     echo "Marked ${epic_id} complete (${grade})."
+}
+
+# Mandatory CbC failures cannot be overridden by informational completion flags.
+_require_cbc_complete() {
+    if ! echo "$1" | jq -e '(.gaps | type == "array") and (.gaps | index("undischarged_cbc_claim") == null)' >/dev/null; then
+        echo "Refusing completion: mandatory CbC verification or acceptance is unresolved." >&2
+        exit $EXIT_GAPS_BLOCKED
+    fi
 }
 
 main "$@"

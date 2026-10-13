@@ -23,10 +23,10 @@ If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this syn
 Options:
   --unit-tests p1,p2,...   (task only) write into task's unit_tests: field
   --strict                 refuse on any integrity gaps
-  --force                  override --strict refusal
+  --force                  override non-CbC --strict refusal
   --no-stamp               do not write completion_gaps: into YAML
 
-Default behaviour: warn on gaps, stamp `completion_gaps:`, then mark complete.
+Default behavior: block mandatory CbC gaps. Warn and stamp other gaps before completion.
 ```
 
 ---
@@ -67,13 +67,24 @@ For `EPIC-XXX` the wrapper:
 3. The most consequential gap to watch for is `no_integration_tests` — the user-flow lifecycle expects integration tests to be authored once all tasks are complete.
 4. Stamps `completion_gaps:` and flips `status: complete`.
 
+## Mandatory CbC gate
+
+Completion always blocks `undischarged_cbc_claim`, regardless of `--strict`, `--force`, or `--no-stamp`.
+The shared `cbc_gate_status` checks verification and `cbc-acceptance=required` through the same implementation in Claude Code and Pi.
+Required acceptance needs an authorized maintainer signature bound to the current artifact, source, claim, and evidence.
+Missing, stale, malformed, or unauthorized acceptance blocks completion.
+An informational discharge exit code cannot override this requirement.
+
+Use `/cbc:verify` or `/skill:cbc-verify` to inspect evidence and import independent maintainer approval.
+Never infer acceptance from a tool permission, verifier result, or waiver.
+
 ## Flags
 
 | Flag | Effect |
 |------|--------|
 | `--unit-tests p1,p2,...` | Write a comma-separated list to the task's `unit_tests:` field before validation. Task mode only. |
 | `--strict` | Refuse to flip `status: complete` when any gaps are present. Exit code 3. |
-| `--force` | Override a `--strict` refusal. Still prints the gap report. |
+| `--force` | Override a non-CbC `--strict` refusal. Still prints the gap report. |
 | `--no-stamp` | Skip writing `completion_gaps:` into the YAML even when gaps exist. |
 | `--help`, `-h` | Show synopsis. |
 
@@ -97,7 +108,7 @@ The `completion_gaps:` field captures the canonical gap codes
 | 0 | Marked complete (possibly partial) |
 | 1 | Target not found |
 | 2 | Invalid arguments |
-| 3 | `--strict` blocked completion because of gaps (use `--force` to override) |
+| 3 | Mandatory CbC or strict integrity gaps blocked completion |
 | 4 | YAML write error |
 
 ## Related commands

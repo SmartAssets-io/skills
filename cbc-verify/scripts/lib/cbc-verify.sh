@@ -40,8 +40,13 @@ cbc_verify() {
         return 3
     fi
 
-    local claim="" commit evidence_tmp rc=0
-    [[ -n "$claim_file" && -f "$claim_file" ]] && claim="$(cat "$claim_file")"
+    local claim="" commit evidence_tmp rc=0 inputs
+    if [[ -n "$claim_file" && ! -f "$claim_file" ]]; then
+        echo "cbc verify: claim not found: $claim_file" >&2
+        return 1
+    fi
+    [[ -n "$claim_file" ]] && claim="$(cat "$claim_file")"
+    inputs=$(cbc_acceptance_tool snapshot "$artifact" "$claim_file") || return 3
     commit="$(git rev-parse --short HEAD 2>/dev/null || echo uncommitted)"
     evidence_tmp="$(mktemp)"
 
@@ -57,7 +62,7 @@ cbc_verify() {
     esac
 
     local path
-    path="$(cbc_ledger_write "$artifact" "$commit" "$claim" "$(cbc_adapter_name)" "$status" "$evidence")"
+    path="$(cbc_ledger_write "$artifact" "$commit" "$claim" "$(cbc_adapter_name)" "$status" "$evidence" null "$claim_file" "$inputs")" || return 3
 
     echo "cbc verify: $artifact -> $status (adapter: $adapter)"
     echo "  evidence: $path"
@@ -69,7 +74,7 @@ cbc_verify() {
 cbc_status() {
     local artifact="${1:-}"
     if [[ -n "$artifact" ]]; then
-        echo "$artifact: $(cbc_ledger_status "$artifact")"
+        echo "$artifact: $(cbc_ledger_status "$artifact") (gate: $(cbc_gate_status "$artifact"))"
         return 0
     fi
     local dir; dir="$(cbc_ledger_dir)"

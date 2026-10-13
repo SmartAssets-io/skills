@@ -53,16 +53,17 @@ _INTEGRITY_WALKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)
 # a no-op ("no") unless cbc=mandatory git attributes exist and git + the ledger
 # are available, so existing chains are unaffected.
 _iw_cbc_undischarged() {
-    command -v git >/dev/null 2>&1 || { echo "no"; return 0; }
-    git rev-parse --git-dir >/dev/null 2>&1 || { echo "no"; return 0; }
-    declare -F cbc_ledger_status >/dev/null 2>&1 || { echo "no"; return 0; }
     local f st
     while IFS= read -r f; do
         [[ -z "$f" ]] && continue
-        if [[ "$(git check-attr cbc -- "$f" 2>/dev/null)" == *": cbc: mandatory" ]]; then
-            st="$(cbc_ledger_status "$f" 2>/dev/null)"
-            [[ "$st" == "discharged" || "$st" == "waived" ]] || { echo "yes"; return 0; }
-        fi
+        command -v git >/dev/null 2>&1 || { echo "yes"; return 0; }
+        git rev-parse --git-dir >/dev/null 2>&1 || { echo "yes"; return 0; }
+        declare -F cbc_gate_status >/dev/null 2>&1 || { echo "yes"; return 0; }
+        st="$(cbc_gate_status "$f" 2>/dev/null)"
+        case "$st" in
+            discharged|waived|not_required) ;;
+            *) echo "yes"; return 0 ;;
+        esac
     done
     echo "no"
 }
@@ -261,7 +262,7 @@ validate_task() {
     # CbC discharge (additive; no-op unless cbc=mandatory git attributes exist)
     if [[ "$(echo "$task" | jq -r '.files // [] | .[]' 2>/dev/null | _iw_cbc_undischarged)" == "yes" ]]; then
         gaps=$(_iw_push_gap "$gaps" "undischarged_cbc_claim")
-        details=$(_iw_push_detail "$details" "undischarged_cbc_claim" "Task ${task_id} touches CbC-mandatory files lacking a discharged/waived evidence record" "$todos_file")
+        details=$(_iw_push_detail "$details" "undischarged_cbc_claim" "Task ${task_id} has unresolved CbC verification, acceptance, or policy" "$todos_file")
     fi
 
     # Epic -> flow link

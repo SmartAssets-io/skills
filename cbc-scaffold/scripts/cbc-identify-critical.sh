@@ -17,6 +17,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_CONFIG="$SCRIPT_DIR/lib/cbc-critical-patterns.jsonc"
+ATTRIBUTES_HELPER="$SCRIPT_DIR/lib/cbc-attributes.py"
 
 # Mirrors AItools/scripts/lib/repo-selection.sh::_strip_jsonc - strip JSONC
 # block/line comments and trailing commas so jq can parse the config.
@@ -41,10 +42,13 @@ cbc-identify-critical.sh - propose CbC-mandatory .gitattributes tags
 
 Usage:
   cbc-identify-critical.sh [--base <ref>] [--config <path>] [--json]
+                          [--root-only] [--acceptance-required]
 
   --base <ref>    Only consider files changed vs <ref> (default: all tracked files)
-  --config <path> Heuristics config (default: lib/cbc-critical-patterns.jsonc)
-  --json          Emit a JSON array of candidates instead of the human proposal
+  --config <path> Heuristics and owner config (default: lib/cbc-critical-patterns.jsonc)
+  --json          Emit routed candidates with their destination and exact rule.
+  --root-only     Route new rules to the root policy file.
+  --acceptance-required  Add required acceptance to new mandatory rules.
   --help, -h      Show this help
 
 Output is a PROPOSAL only; .gitattributes is never modified. Review the
@@ -76,11 +80,14 @@ _match_file() {
 
 main() {
     local base="" config="${CBC_CRITICAL_CONFIG:-$DEFAULT_CONFIG}" json=0
+    local root_only=0 acceptance_required=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --base)   base="${2:-}"; shift 2 || true ;;
             --config) config="${2:-}"; shift 2 || true ;;
             --json)   json=1; shift ;;
+            --root-only) root_only=1; shift ;;
+            --acceptance-required) acceptance_required=1; shift ;;
             -h|--help) usage; return 0 ;;
             *) echo "cbc-identify-critical: unknown option '$1'" >&2; return 3 ;;
         esac
@@ -88,6 +95,11 @@ main() {
 
     command -v jq >/dev/null 2>&1 || { echo "cbc-identify-critical: jq is required" >&2; return 3; }
     [[ -f "$config" ]] || { echo "cbc-identify-critical: config not found: $config" >&2; return 3; }
+    command -v python3 >/dev/null 2>&1 || { echo "cbc-identify-critical: python3 is required" >&2; return 3; }
+    [[ "$config" == /* ]] || config="$PWD/$config"
+    local root
+    root="$(git rev-parse --show-toplevel)" || return 3
+    cd "$root" || return 3
 
     local cfg
     cfg=$(_strip_jsonc "$config")
@@ -109,13 +121,13 @@ main() {
     # Candidate file list.
     local -a files=()
     if [[ -n "$base" ]]; then
-        mapfile -t files < <(git diff --name-only "$base" 2>/dev/null)
+        mapfile -d '' -t files < <(git diff --name-only -z "$base" 2>/dev/null)
     else
-        mapfile -t files < <(git ls-files 2>/dev/null)
+        mapfile -d '' -t files < <(git ls-files -z 2>/dev/null)
     fi
 
-    # rows: "score\tweight\tpath\trisk\tchurn\tloc\treason"
-    local rows="" f risk reason2 churn loc score weight bonus
+    # JSON rows keep filenames and reasons separate from presentation delimiters.
+    local rows="" f risk reason2 churn loc score weight
     for f in "${files[@]}"; do
         [[ -z "$f" || ! -f "$f" ]] && continue
         IFS=$'\t' read -r risk reason2 < <(_match_file "$f")
@@ -137,39 +149,40 @@ main() {
         elif [[ "$score" -ge "$w_mid" ]]; then weight="medium"
         else weight="low"; fi
 
-        rows+="${score}	${weight}	${f}	${risk}	${churn}	${loc}	${reason2}"$'\n'
+        rows+="$(jq -cn --arg path "$f" --arg weight "$weight" --arg reason "$reason2" \
+            --argjson score "$score" --argjson risk "$risk" --argjson churn "$churn" --argjson loc "$loc" \
+            '{path:$path, weight:$weight, score:$score, risk:$risk, churn:$churn, loc:$loc, reason:$reason}')"$'\n'
     done
 
-    rows=$(printf '%s' "$rows" | sed '/^$/d' | sort -t$'\t' -k1,1nr -k3,3)
-
+    local candidates owners
+    candidates=$(printf '%s' "$rows" | jq -s 'sort_by([(-.score), .path])') || return 3
+    owners=$(echo "$cfg" | jq -c '.attribute_owners // []') || return 3
+    candidates=$(jq -n --argjson candidates "$candidates" --argjson owners "$owners" \
+        --argjson root_only "$root_only" --argjson acceptance_required "$acceptance_required" \
+        '{candidates:$candidates, owners:$owners, root_only:($root_only == 1),
+          acceptance_required:($acceptance_required == 1)}' | python3 "$ATTRIBUTES_HELPER" route) || return 3
     if [[ "$json" -eq 1 ]]; then
-        if [[ -z "$rows" ]]; then echo "[]"; return 0; fi
-        printf '%s\n' "$rows" | jq -R -s '
-            split("\n") | map(select(length > 0)) | map(split("\t")) |
-            map({path: .[2], weight: .[1], score: (.[0]|tonumber),
-                 risk: (.[3]|tonumber), churn: (.[4]|tonumber),
-                 loc: (.[5]|tonumber), reason: .[6]})'
+        printf '%s\n' "$candidates"
         return 0
     fi
 
-    if [[ -z "$rows" ]]; then
+    if [[ "$(echo "$candidates" | jq 'length')" -eq 0 ]]; then
         echo "No new mission-critical candidates found (already-tagged files are excluded)."
         return 0
     fi
 
     local count
-    count=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
+    count=$(echo "$candidates" | jq 'length')
     echo "Proposed CbC-mandatory tags ($count candidate(s)):"
     echo "(review and append accepted lines to .gitattributes; nothing is written automatically)"
     echo ""
-    printf '%s\n' "$rows" | while IFS=$'\t' read -r score weight path risk churn loc reason; do
-        printf '  %-7s %-45s (risk=%s churn=%s loc=%s  %s)\n' "$weight" "$path" "$risk" "$churn" "$loc" "$reason"
-    done
+    echo "$candidates" | jq -r '.[] | [.weight,.path,.risk,.churn,.loc,.reason] | @tsv' |
+        while IFS=$'\t' read -r weight path risk churn loc reason; do
+            printf '  %-7s %-45s (risk=%s churn=%s loc=%s  %s)\n' "$weight" "$path" "$risk" "$churn" "$loc" "$reason"
+        done
     echo ""
-    echo "Proposed .gitattributes additions:"
-    printf '%s\n' "$rows" | while IFS=$'\t' read -r score weight path risk churn loc reason; do
-        printf '  %s   cbc=mandatory cbc-weight=%s\n' "$path" "$weight"
-    done
+    echo "Proposed .gitattributes additions (destination: exact rule):"
+    echo "$candidates" | jq -r '.[] | "  \(.attributes_file): \(.rule)"'
 }
 
 main "$@"

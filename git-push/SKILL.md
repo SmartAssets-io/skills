@@ -28,6 +28,35 @@ Repo selection: Honors .multi-repo-selection.jsonc if present. MULTI_REPO_ALL=tr
 
 ---
 
+## Pi structured workflow
+
+In Pi, use this workflow instead of the shell workflows below.
+
+1. Use `sa_git_inspect` to inspect repository status and recent commits.
+2. Use its `discover` action when the user requests multiple repositories.
+3. Select the exact repositories that the user requested.
+4. For multiple repositories, use `sa_git_plan` with operation `push`.
+5. Use `sa_git_push` once for each approved repository.
+6. Report each result and stop.
+
+Do not run Git mutation commands or legacy wrappers through shell tools in Pi.
+The push tool requires an existing upstream and permits HTTPS or SSH transport.
+It does not force a push, create an upstream, follow tags, or push submodules.
+Each plan requires explicit UI approval and permits one operation per repository.
+
+On macOS, the guard retains configured hooks in disposable checkout copies.
+The guard requires an existing SSH agent and verified host key for SSH authentication.
+Manually entered `!` commands use Pi's normal shell, authentication, and hooks.
+The guard does not intercept these commands or request additional approval.
+Manual commands do not grant model Git permissions.
+
+If isolation, cached hook dependencies, or authentication is unavailable, stop and report the blocker.
+Do not use another tool to bypass the guard.
+
+The remaining sections apply to non-Pi harnesses.
+
+---
+
 You are helping the user push git commits across multiple repositories.
 
 **Harness modes**: This command works across Claude Code and Pi surfaces:
@@ -36,7 +65,7 @@ You are helping the user push git commits across multiple repositories.
 |--------|---------|----------|
 | `~/.claude` | `claude` / `claude-safe` | Restrictive hooks block direct `git push`. Use `git-push.sh`, which delegates to the push-only script |
 | `~/.claude-agentic` | `claude-agentic` | No restrictive hooks. Can use direct git push OR the script |
-| Pi | `pi` | Invoke as `/skill:git-push` or `/git-push`. Pi does not load Claude Code hooks, so rely on explicit invocation and review script actions before approving them. |
+| Pi | `pi` | Use the Pi structured workflow above. The guard requires matching invocation and verified isolation. |
 
 **Repo selection**: In multi-repo mode, if a `.multi-repo-selection.jsonc` config exists in the workspace root (created by `/multi-repo-sync --wizard`), operations will be scoped to the selected repos. Set `MULTI_REPO_ALL=true` to bypass.
 

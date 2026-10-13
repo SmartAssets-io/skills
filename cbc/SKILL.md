@@ -22,6 +22,9 @@ If the user passed `?`, `--help`, or `-h` as the argument, display ONLY this syn
 /cbc <subcommand> [arguments]   # legacy flat alias
 
 Subcommands:
+  attributes snapshot|lint [--cached]
+  attributes compare <snapshot> [--cached]
+                          Inspect hierarchical policy through Git.
   identify  [--scope diff|epic EID|flow FID]
                           List CbC-mandatory files in scope (default: working diff).
   verify    <artifact> [--adapter mock|agentic|embedded] [--claim PATH] [--prover NAME]
@@ -30,6 +33,8 @@ Subcommands:
   discharge [--scope diff|epic EID|flow FID] [--strict] [--json]
                           Gate: every in-scope mandatory artifact has a
                           discharged or waived record. --strict exits non-zero on gaps.
+  acceptance-payload <artifact>
+  accept    <artifact> --approval PATH --signature PATH
   waive     <artifact> --reason TEXT
                           Record an explicit waiver with rationale against a claim.
   status    [<artifact>] [--json]
@@ -86,7 +91,8 @@ Identify  ->  Claim  ->  Synthesis  ->  Review  ->  Verification  ->  Evidence  
 CbC-mandatory code is marked with **git attributes** (no separate registry).
 Each verification writes an **evidence record** under `docs/cbc-evidence/`.
 Completion is **gated**: `/task-complete` reports an `undischarged_cbc_claim`
-gap for any mandatory artifact lacking a `discharged`/`waived` record.
+gap for any mandatory artifact lacking verification or required maintainer acceptance.
+Completion refuses this gap even without `--strict` or with `--force`.
 
 ## Subcommands
 
@@ -111,12 +117,43 @@ src/consensus/**.rs   cbc=mandatory cbc-weight=high
 | Attribute | Values | Meaning |
 |-----------|--------|---------|
 | `cbc` | `mandatory` | Path requires discharge before completion |
+| `cbc-acceptance` | `required` | Path also requires current signed maintainer acceptance |
 | `cbc-weight` | `low` \| `medium` (default) \| `high` | risk x value x cognitive weighting |
 
 > Tags are authored manually or **proposed by `/code-review`'s mission-critical
 > scan** (EPIC-025 TODO-025-006), which scores files by risk x value x
 > cognitive weight; a human ratifies before commit. `cbc identify` only
 > *reads* the resulting tags.
+
+### attributes
+
+Git resolves attributes from root and nested `.gitattributes` files.
+Owner declarations route new proposals but do not define verification obligations.
+
+```bash
+"scripts/cbc.sh" attributes snapshot > before.json
+"scripts/cbc.sh" attributes compare before.json
+"scripts/cbc.sh" attributes lint
+```
+
+Use matching `--cached` options to compare index policy instead of working-tree policy.
+Snapshots contain every tracked path and all effective attributes, including unrelated formatting and filter attributes.
+Comparison exits `4` when values or tracked paths change.
+Lint exits `3` for invalid effective acceptance policy.
+Other diagnostics are advisory and do not replace Git precedence.
+
+The scanner emits anchored exact-file patterns and an `attributes_file` destination for each proposal.
+Configure optional `attribute_owners` in the scanner configuration.
+Use `--root-only` for root authoring or `--acceptance-required` for new mandatory-and-acceptance rules.
+Inherited acceptance remains valid without a same-line rule.
+The writer does not rewrite existing rules or evidence.
+
+Keep root-only attribute macros and repository-wide rules at the root.
+Before policy redistribution, save a snapshot.
+After redistribution, compare both working-tree and index snapshots.
+Equivalent policy moves retain approval bindings.
+Source moves need fresh verification and required acceptance.
+Per-path evidence routing and enforcement against ambient overrides remain deferred.
 
 ### verify
 
@@ -153,10 +190,75 @@ consults.
 "scripts/cbc.sh" discharge --scope epic EPIC-025 --strict
 ```
 
+## Required maintainer acceptance
+
+Use `cbc=mandatory cbc-acceptance=required` when discharge also requires maintainer approval.
+Only `required` and an unspecified acceptance attribute are valid.
+A required acceptance attribute without `cbc=mandatory` is a policy error.
+
+Verification and approval are separate actions.
+Neither a verifier result, tool permission, waiver, nor agent review establishes maintainer acceptance.
+Status checks and verifier runs do not require approval.
+
+The operator configures `cbc.acceptanceAllowedSigners` in local Git configuration.
+The value must name an absolute OpenSSH allowed-signers file outside the worktree.
+The operator must protect this file and Git configuration from unauthorized changes.
+Agents must not enroll trusted keys, access maintainer private keys, or sign approvals.
+This trust boundary does not protect against an operator who can replace authorized keys.
+
+Each approval requires an authorized SSH signature in the `cbc-acceptance` namespace.
+The signature identity must match `accepted_by` and an explicit principal in the allowed-signers file.
+Wildcard principals cannot authorize acceptance.
+The signed JSON includes `approved_at`, `approval_ref`, the artifact path, and source, claim, and evidence bindings.
+`approval_ref` identifies the maintainer's review record.
+The signature authenticates that reference but does not fetch an external review service.
+
+Run commands from the repository root.
+Source and external claim files must remain inside the repository.
+Python 3.9 or later and OpenSSH with SSH signature support are required.
+
+1. Run verification with the applicable claim.
+2. Export the unsigned acceptance payload.
+3. Ask the authorized maintainer to inspect the source, claim, and evidence.
+4. Ask the maintainer to fill `accepted_by`, `approved_at`, and `approval_ref`.
+5. Ask the maintainer to sign the exact approval file.
+6. Import the approval and signature.
+7. Run the strict discharge gate.
+
+```bash
+"scripts/cbc.sh" acceptance-payload src/example.rs > approval.json
+# The maintainer completes the fields and signs this file independently:
+ssh-keygen -Y sign -f /path/to/maintainer-key -n cbc-acceptance approval.json
+"scripts/cbc.sh" accept src/example.rs \
+  --approval approval.json --signature approval.json.sig
+"scripts/cbc.sh" discharge --files src/example.rs --strict
+```
+
+Acceptance resides in `<artifact-id>.acceptance.json` beside the evidence ledger.
+The evidence digest covers the ledger, including hashes of referenced evidence files.
+It excludes the acceptance file to avoid a self-referential digest.
+Changes to source, claim, verification records, or referenced evidence invalidate acceptance.
+A new verification run requires a new approval, even when source bytes remain unchanged.
+
+Replacement records preserve earlier bytes under `history/`.
+Formal reports use unique filenames.
+Historical records without input bindings remain readable but cannot satisfy required acceptance.
+Run verification and obtain a signed approval instead of inventing approval metadata.
+
+Waivers still require signed acceptance on required paths.
+Missing or stale acceptance produces an `acceptance_required` gate status.
+Malformed policy produces a policy error.
+Completion reports `undischarged_cbc_claim` and refuses completion, including with `--force`.
+Informational discharge without `--strict` can report gaps with exit zero.
+Never use that exit code as permission to complete a mandatory task.
+
+Claude Code and Pi use the same `cbc_gate_status` implementation.
+Generate Pi resources from the canonical commands and manifest.
+
 ### waive
 
 Record an explicit waiver with rationale against an artifact's claim. Waived
-artifacts satisfy the gate but remain visible in the ledger.
+artifacts satisfy the verification requirement but do not bypass required acceptance.
 
 ```bash
 "scripts/cbc.sh" waive contracts/escrow.move \
@@ -238,7 +340,7 @@ scripts/setup-pi.sh --local --with-formal-verify
 scripts/setup-pi.sh --local --formal-verify /path/to/pi-formal-verify
 ```
 
-When `CBC_PROVER=dafny`, `CBC_PROVER=z3`, or `--prover dafny|z3` is used with `--adapter embedded`, CbC prefers the `pi-formal-verify` CLI. It searches `PI_FORMAL_VERIFY_CLI`, `PI_FORMAL_VERIFY_PATH`, PATH, and the standard sibling workspace layout. It writes formal JSON evidence under `docs/cbc-evidence/formal/` and references that file from the CbC ledger record. A `discharged` formal status satisfies the CbC gate; `refuted`, `unknown`, or `tool_error` remain not discharged.
+When `CBC_PROVER=dafny`, `CBC_PROVER=z3`, or `--prover dafny|z3` is used with `--adapter embedded`, CbC prefers the `pi-formal-verify` CLI. It searches `PI_FORMAL_VERIFY_CLI`, `PI_FORMAL_VERIFY_PATH`, PATH, and the standard sibling workspace layout. It writes formal JSON evidence under `docs/cbc-evidence/formal/` and references that file from the CbC ledger record. A `discharged` formal status satisfies verification, but required acceptance remains separate. `refuted`, `unknown`, or `tool_error` remain not discharged.
 
 ## Related Commands
 

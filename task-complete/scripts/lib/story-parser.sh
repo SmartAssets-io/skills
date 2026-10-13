@@ -400,9 +400,16 @@ update_story_epic_link() {
         fi
 
         if [[ "$in_story" == true ]]; then
-            # Update Implemented in field if it exists
-            if [[ "$line" =~ ^\*\*Implemented[[:space:]]+in:\*\* ]]; then
-                echo "**Implemented in:** ${epic_id}"
+            # Preserve existing links and add each epic only once.
+            if [[ "$line" =~ ^\*\*Implemented[[:space:]]+in:\*\*[[:space:]]*(.*)$ ]]; then
+                local implemented_in="${BASH_REMATCH[1]}"
+                if [[ "$implemented_in" =~ ^[[:space:]]*(Planned)?[[:space:]]*$ ]]; then
+                    printf '**Implemented in:** %s\n' "$epic_id"
+                elif [[ "$implemented_in" =~ (^|[^[:alnum:]_-])${epic_id}([^[:alnum:]_-]|$) ]]; then
+                    printf '%s\n' "$line"
+                else
+                    printf '%s, %s\n' "$line" "$epic_id"
+                fi
                 updated=true
                 continue
             fi

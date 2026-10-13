@@ -8,6 +8,11 @@
 
 [[ -n "${_CBC_LEDGER_SH_LOADED:-}" ]] && return 0
 _CBC_LEDGER_SH_LOADED=1
+_CBC_LEDGER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+cbc_acceptance_tool() {
+    python3 "$_CBC_LEDGER_DIR/cbc-acceptance.py" "$@"
+}
 
 cbc_ledger_dir() { echo "${CBC_EVIDENCE_DIR:-docs/cbc-evidence}"; }
 
@@ -43,23 +48,8 @@ cbc_ledger_write() {
           adapter: $adapter, status: $status, evidence: $evidence,
           waiver: $waiver, verified_at: $ts}')
 
-    {
-        echo "# CbC Evidence: $artifact"
-        echo ""
-        echo "- **Status:** $status"
-        echo "- **Adapter:** $adapter"
-        echo "- **Commit:** $commit"
-        echo "- **Verified:** $ts"
-        echo ""
-        echo "Claim:"
-        echo ""
-        echo "> ${claim:-(none)}"
-        echo ""
-        echo '```json'
-        echo "$record"
-        echo '```'
-    } > "$path"
-    echo "$path"
+    [[ -n "$record" ]] || return 3
+    printf '%s\n' "$record" | cbc_acceptance_tool record "$artifact" "$path" "${8:-}" "${9:-}"
 }
 
 # Record an explicit waiver against an artifact (used by `cbc waive`, TODO-025-004).
@@ -75,6 +65,28 @@ cbc_ledger_waive() {
 }
 
 # Echo an artifact's recorded status, or "none".
+# Shared effective status for discharge and completion. Fail closed on policy errors.
+cbc_gate_status() {
+    local artifact="$1" policy mandatory status attrs
+    attrs=$(git check-attr cbc cbc-acceptance -- "$artifact" 2>/dev/null) || { echo policy_error; return 0; }
+    mandatory=$(printf '%s\n' "$attrs" | sed -n 's/.*: cbc: //p')
+    policy=$(printf '%s\n' "$attrs" | sed -n 's/.*: cbc-acceptance: //p')
+    case "$policy" in
+        unspecified) ;;
+        required) [[ "$mandatory" == mandatory ]] || { echo policy_error; return 0; } ;;
+        *) echo policy_error; return 0 ;;
+    esac
+    [[ "$mandatory" == mandatory ]] || { echo not_required; return 0; }
+    status=$(cbc_ledger_status "$artifact")
+    if [[ "$status" == discharged || "$status" == waived ]]; then
+        if [[ "$policy" == required ]] && ! cbc_acceptance_tool check "$artifact" "$(cbc_ledger_path "$artifact")" >/dev/null 2>&1; then
+            echo acceptance_required
+            return 0
+        fi
+    fi
+    printf '%s\n' "$status"
+}
+
 cbc_ledger_status() {
     local path; path="$(cbc_ledger_path "$1")"
     [[ -f "$path" ]] || { echo "none"; return 0; }

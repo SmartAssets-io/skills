@@ -13,6 +13,11 @@
   //   type "dir"  -> some path segment equals `match`      (e.g. consensus)
   //   type "name" -> basename contains `match`             (e.g. keys)
   // `risk` (1-3) seeds the score.
+  // Owner directories route new proposals only. They do not define policy.
+  // Use repository-relative directory paths. The nearest declared ancestor wins.
+  // Without an owner, reuse the nearest ancestor policy file, then the root.
+  "attribute_owners": [],
+
   "rules": [
     { "type": "ext",  "match": "move",      "risk": 3, "reason": "Move smart contract" },
     { "type": "ext",  "match": "sol",       "risk": 3, "reason": "Solidity smart contract" },

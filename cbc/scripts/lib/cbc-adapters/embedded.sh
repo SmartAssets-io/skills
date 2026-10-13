@@ -73,20 +73,22 @@ cbc_adapter_available() {
 }
 
 cbc_formal_evidence_path() {
-	local artifact="$1" backend="$2" dir id ts
+	local artifact="$1" backend="$2" dir id ts run_dir
 	dir="${CBC_EVIDENCE_DIR:-docs/cbc-evidence}/formal"
 	mkdir -p "$dir"
 	id=$(printf '%s' "$artifact" | tr -c 'A-Za-z0-9' '-' | tr -s '-')
 	id="${id#-}"
 	id="${id%-}"
 	ts=$(date -u +%Y%m%dT%H%M%SZ)
-	printf '%s/%s-%s-%s.json\n' "$dir" "$backend" "$id" "$ts"
+	# Allocate a unique report path so repeated runs cannot overwrite evidence.
+	run_dir=$(mktemp -d "$dir/$backend-$id-$ts-XXXXXX") || return 3
+	printf '%s/evidence.json\n' "$run_dir"
 }
 
 cbc_adapter_verify_formal() {
 	local artifact="$1" claim_file="$2" out="$3" backend="$4" cli="$5"
 	local formal_out rc=0
-	formal_out="$(cbc_formal_evidence_path "$artifact" "$backend")"
+	formal_out="$(cbc_formal_evidence_path "$artifact" "$backend")" || return 3
 
 	local args=(verify --backend "$backend" --path "$artifact" --output "$formal_out")
 	[[ -n "$claim_file" && -f "$claim_file" ]] && args+=(--claim-file "$claim_file")
