@@ -71,6 +71,75 @@ def values(root: Path, paths: list[str], cached: bool = False,
     return result
 
 
+def evidence_directory(root: Path, value: str, *, environment: bool = False) -> str:
+    if (not isinstance(value, str) or not value or any(ord(c) < 32 or ord(c) == 127 for c in value)
+            or "\\" in value or re.match(r"^[A-Za-z]:", value)):
+        raise ValueError("Invalid cbc-evidence directory.")
+    path = Path(value)
+    if path.is_absolute() and not environment:
+        raise ValueError("cbc-evidence must be repository-relative.")
+    target = Path(os.path.abspath(root / path))
+    try:
+        if environment and path.is_absolute():
+            target = target.resolve()
+        local = target.relative_to(root)
+        resolved = target.resolve()
+        actual = resolved.relative_to(root)
+    except (ValueError, OSError, RuntimeError) as error:
+        raise ValueError("cbc-evidence must remain inside the worktree.") from error
+    if any(part.casefold() == ".git" for part in (*local.parts, *actual.parts)):
+        raise ValueError("cbc-evidence cannot use Git metadata.")
+    if target.exists() and not target.is_dir():
+        raise ValueError("cbc-evidence must name a directory.")
+    return local.as_posix()
+
+
+def artifact_relative(root: Path, artifact: str) -> str:
+    path = Path(os.path.abspath(artifact))
+    try:
+        local = path.relative_to(root)
+        path.resolve().relative_to(root)
+    except (ValueError, OSError, RuntimeError) as error:
+        raise ValueError("The artifact must remain inside the worktree.") from error
+    if any(part.casefold() == ".git" for part in local.parts) or any(ord(c) < 32 or ord(c) == 127 for c in artifact):
+        raise ValueError("Invalid artifact path.")
+    return local.as_posix()
+
+
+def evidence_slug(root: Path, artifact: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "-", artifact_relative(root, artifact)).strip("-")
+
+
+def selected_evidence_directory(root: Path, raw: str) -> str:
+    if raw == "unspecified":
+        return evidence_directory(root, os.environ.get("CBC_EVIDENCE_DIR") or "docs/cbc-evidence", environment=True)
+    if raw in ("set", "unset"):
+        raise ValueError("cbc-evidence requires a directory string.")
+    return evidence_directory(root, raw)
+
+
+def evidence_location(root: Path, artifact: str | None, *, ledger: bool = False) -> str:
+    local = artifact_relative(root, artifact) if artifact else None
+    raw = values(root, [local], attributes=("cbc-evidence",))[local]["cbc-evidence"] if local else "unspecified"
+    directory = selected_evidence_directory(root, raw)
+    if not ledger:
+        return directory
+    if not local or not artifact:
+        raise ValueError("An artifact is required for an evidence ledger.")
+    slug = evidence_slug(root, artifact)
+    target = root / directory / (slug + ".md")
+    for candidate in (target, target.with_suffix(".acceptance.json"), target.parent / "history",
+                      target.with_suffix(".claims.json"), target.with_suffix(".claims"),
+                      target.with_suffix(".claims.lock")):
+        try:
+            actual = candidate.resolve().relative_to(root)
+        except (ValueError, OSError, RuntimeError) as error:
+            raise ValueError("Evidence files must remain inside the worktree.") from error
+        if any(part.casefold() == ".git" for part in actual.parts) or (candidate.is_file() and candidate.stat().st_nlink > 1):
+            raise ValueError("Unsafe evidence file destination.")
+    return (Path(directory) / target.name).as_posix()
+
+
 def literal_pattern(path: str) -> str:
     pattern = "/" + re.sub(r"([\\*?\[\]])", r"\\\1", path)
     if re.fullmatch(r"[A-Za-z0-9_./-]+", pattern):
@@ -294,6 +363,11 @@ def snapshot(root: Path, cached: bool = False) -> dict[str, Any]:
         acceptance = attrs["cbc-acceptance"]
         if acceptance not in ("unspecified", "required") or (acceptance == "required" and attrs["cbc"] != "mandatory"):
             errors.append({"code": "policy_error", "path": path})
+        if attrs["cbc-evidence"] != "unspecified":
+            try:
+                selected_evidence_directory(root, attrs["cbc-evidence"])
+            except ValueError:
+                errors.append({"code": "evidence_policy_error", "path": path})
     return {"schema": SCHEMA, "attributes": list(ATTRIBUTES), "cached": cached,
             "files": effective, "all_attributes": all_attributes,
             "diagnostics": warnings, "errors": errors,
@@ -320,13 +394,39 @@ def compare(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("route", "apply", "snapshot", "lint", "compare"))
+    parser.add_argument("command", choices=("route", "apply", "snapshot", "lint", "compare", "evidence-dir", "evidence-path", "evidence-slug", "evidence-check", "evidence-dirs", "evidence-formal"))
     parser.add_argument("baseline", nargs="?")
     parser.add_argument("--cached", action="store_true")
     args = parser.parse_args()
     try:
         root = Path(os.fsdecode(git(Path.cwd(), "rev-parse", "--show-toplevel").stdout[:-1])).resolve()
         rc = 0
+        if args.command == "evidence-slug":
+            if not args.baseline:
+                raise ValueError("An artifact is required for an evidence slug.")
+            print(evidence_slug(root, args.baseline))
+            return 0
+        if args.command in ("evidence-dir", "evidence-path", "evidence-formal"):
+            location = evidence_location(root, args.baseline, ledger=args.command == "evidence-path")
+            if args.command == "evidence-formal":
+                location = evidence_directory(root, str(Path(location) / "formal"))
+            print(location)
+            return 0
+        if args.command == "evidence-check":
+            paths = [os.fsdecode(p) for p in sys.stdin.buffer.read().split(b"\0") if p]
+            attrs = values(root, paths, attributes=("cbc-evidence",))
+            for path in paths:
+                artifact_relative(root, path)
+                selected_evidence_directory(root, attrs[path]["cbc-evidence"])
+            return 0
+        if args.command == "evidence-dirs":
+            paths = [os.fsdecode(p) for p in git(root, "ls-files", "--cached", "--others", "--exclude-standard", "-z").stdout.split(b"\0") if p]
+            attrs = values(root, paths, attributes=("cbc-evidence",))
+            directories = {selected_evidence_directory(root, attrs[p]["cbc-evidence"]) for p in paths}
+            if not paths:
+                directories.add(selected_evidence_directory(root, "unspecified"))
+            print(json.dumps(sorted(directories)))
+            return 0
         if args.command == "route":
             output = route(root, json.load(sys.stdin))
         elif args.command == "apply":

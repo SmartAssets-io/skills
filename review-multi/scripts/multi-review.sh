@@ -485,6 +485,13 @@ parse_args() {
 main() {
     parse_args "$@"
 
+    # This is a diagnostic marker, not an authorization mechanism.
+    if [[ "${SA_PI_EXECUTION_SCOPE:-}" == "read-only" ]]; then
+        log_error "This sandbox cannot run credentialed reviews. Use sa_review_multi in Pi."
+        log_info "General shell access does not include provider credentials, Git metadata, or network access."
+        exit 78
+    fi
+
     # Initialize providers
     log_verbose "Initializing providers..."
     providers_init
@@ -543,7 +550,7 @@ main() {
 
         # Detect platform
         local platform
-        platform=$(detect_platform "$TARGET")
+        platform=$(detect_platform "$TARGET") || platform="unknown"
 
         if [[ "$platform" == "unknown" ]]; then
             log_error "Could not detect platform (GitHub/GitLab)"

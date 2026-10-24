@@ -18,6 +18,7 @@
 # Guard against double-sourcing.
 [[ -n "${_CBC_IDENTIFY_SH_LOADED:-}" ]] && return 0
 _CBC_IDENTIFY_SH_LOADED=1
+_CBC_IDENTIFY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Default task file for epic scope; override via env for tests.
 : "${TODOS_FILE:=docs/ToDos.md}"
@@ -73,6 +74,7 @@ _cbc_filter_mandatory() {
         paths+=("$f")
     done
     [[ ${#paths[@]} -eq 0 ]] && return 0
+    printf '%s\0' "${paths[@]}" | python3 "$_CBC_IDENTIFY_DIR/cbc-attributes.py" evidence-check || return 3
 
     # git check-attr emits "<path>: <attr>: <value>" per requested attribute.
     local out

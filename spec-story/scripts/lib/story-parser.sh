@@ -493,65 +493,145 @@ update_story_flow_link() {
 }
 
 #
-# Update epic's user_story field in ToDos.md
+# Update only the target epic document. Prefer an existing story list.
+# Buffer each document so keys after tasks: do not cause duplicate insertion.
 #
 update_epic_story_link() {
     local epic_id="$1"
     local story_id="$2"
     local todos_file="${3:-docs/ToDos.md}"
-
-    # Create backup
-    cp "$todos_file" "${todos_file}.bak"
-
-    local in_epic_yaml=false
-    local in_target_epic=false
-    local added_link=false
+    local content ending updated
     local temp_file="${todos_file}.tmp"
 
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        # Detect YAML block start
-        if [[ "$line" == '```yaml' ]]; then
-            in_epic_yaml=true
-            echo "$line"
-            continue
-        fi
+    if [[ ! "$epic_id" =~ ^EPIC-[0-9]{3}$ || ! "$story_id" =~ ^US-[0-9]{3}$ ]]; then
+        printf '%s\n' 'Error: Invalid epic or story ID.' >&2
+        return 1
+    fi
 
-        # Detect YAML block end
-        if [[ "$line" == '```' ]] && [[ "$in_epic_yaml" == true ]]; then
-            # If we're in the target epic and haven't added link yet, add it before closing
-            if [[ "$in_target_epic" == true ]] && [[ "$added_link" == false ]]; then
-                echo "user_story: ${story_id}"
-                added_link=true
-            fi
-            in_epic_yaml=false
-            in_target_epic=false
-            echo "$line"
-            continue
-        fi
+    # Preserve final newlines, including an absent final newline.
+    content=$(cat "$todos_file" && printf '.') || return 1
+    content="${content%.}"
+    ending="${content##*[!$'\n']}"
+    updated=$(awk -v epic="$epic_id" -v story="$story_id" '
+        function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+        function value(s) {
+            sub(/[ \t]*#.*/, "", s)
+            s = trim(s)
+            gsub(/^["\047]|["\047]$/, "", s)
+            return s
+        }
+        function reject() {
+            print "Error: Cannot safely update the epic story list." > "/dev/stderr"
+            failed = 1
+            exit 1
+        }
+        function flush(    i, plural, singular, tasks, at, rhs, end, inner, tail, n, items, item, seen, indent, eol) {
+            if (target) {
+                found++
+                for (i = 1; i <= count; i++) {
+                    if (text[i] ~ /^user_stories:/) { if (plural) reject(); plural = i }
+                    if (text[i] ~ /^user_story:/) { if (singular) reject(); singular = i }
+                    if (!tasks && text[i] ~ /^tasks:/) tasks = i
+                }
+                eol = raw[1] ~ /\r$/ ? "\r" : ""
+                if (plural) {
+                    rhs = text[plural]
+                    sub(/^user_stories:[ \t]*/, "", rhs)
+                    if (rhs ~ /^\[/) {
+                        end = index(rhs, "]")
+                        if (!end) reject()
+                        inner = substr(rhs, 2, end - 2)
+                        tail = substr(rhs, end + 1)
+                        if (tail !~ /^[ \t]*(#.*)?$/) reject()
+                        n = split(inner, items, ",")
+                        for (i = 1; i <= n; i++) {
+                            item = value(items[i])
+                            if (!item && n == 1) continue
+                            if (item !~ /^US-[0-9][0-9][0-9]$/) reject()
+                            if (item == story) seen = 1
+                        }
+                        if (!seen) {
+                            sub(/[ \t]+$/, "", inner)
+                            raw[plural] = substr(text[plural], 1, length(text[plural]) - length(rhs)) \
+                                "[" inner (trim(inner) == "" ? "" : ", ") story "]" tail eol
+                        }
+                    } else if (rhs ~ /^[ \t]*(#.*)?$/ || rhs == "null" || rhs == "~") {
+                        at = plural + 1
+                        indent = "  "
+                        for (i = plural + 1; i <= count; i++) {
+                            if (text[i] ~ /^[ \t]*($|#)/) continue
+                            if (text[i] !~ /^[ \t]*-[ \t]+/) {
+                                if (text[i] ~ /^[ \t]+/) reject()
+                                break
+                            }
+                            item = text[i]
+                            sub(/^[ \t]*-[ \t]+/, "", item)
+                            item = value(item)
+                            if (item !~ /^US-[0-9][0-9][0-9]$/) reject()
+                            if (item == story) seen = 1
+                            indent = text[i]
+                            sub(/[^ \t].*$/, "", indent)
+                            at = i + 1
+                        }
+                        if (!seen) {
+                            if (rhs == "null" || rhs == "~") raw[plural] = "user_stories:" eol
+                            insertion = indent "- " story eol
+                        } else at = 0
+                    } else reject()
+                } else if (singular) {
+                    if (value(substr(text[singular], index(text[singular], ":") + 1)) != story)
+                        raw[singular] = "user_story: " story eol
+                } else {
+                    at = tasks ? tasks : count + 1
+                    insertion = "user_story: " story eol
+                }
+            }
+            for (i = 1; i <= count; i++) {
+                if (i == at) print insertion
+                print raw[i]
+                delete raw[i]
+                delete text[i]
+            }
+            if (at == count + 1) print insertion
+            count = target = identity = 0
+            insertion = ""
+        }
+        {
+            line = $0
+            sub(/\r$/, "", line)
+            if (!yaml) {
+                print $0
+                if (line ~ /^```yaml[ \t]*$/) yaml = 1
+                next
+            }
+            if (line ~ /^```[ \t]*$/ || line ~ /^---[ \t]*(#.*)?$/) {
+                flush()
+                print $0
+                if (line ~ /^```/) yaml = 0
+                next
+            }
+            if (line ~ /^(epic_id|id):/) {
+                if (identity) flush()
+                identity = 1
+                id = line
+                sub(/^[^:]*:[ \t]*/, "", id)
+                target = value(id) == epic
+            }
+            raw[++count] = $0
+            text[count] = line
+        }
+        END {
+            if (failed) exit 1
+            flush()
+            if (found != 1) {
+                print "Error: Expected one target epic document." > "/dev/stderr"
+                exit 1
+            }
+        }
+    ' <<<"$content") || return 1
 
-        if [[ "$in_epic_yaml" == true ]]; then
-            # Check if this is our target epic
-            if [[ "$line" =~ ^epic_id:[[:space:]]*${epic_id}$ ]]; then
-                in_target_epic=true
-            fi
-
-            # If we find user_story field and we're in target epic, update it
-            if [[ "$in_target_epic" == true ]] && [[ "$line" =~ ^user_story: ]]; then
-                echo "user_story: ${story_id}"
-                added_link=true
-                continue
-            fi
-
-            # Add user_story before tasks: if we haven't added it yet
-            if [[ "$in_target_epic" == true ]] && [[ "$line" =~ ^tasks: ]] && [[ "$added_link" == false ]]; then
-                echo "user_story: ${story_id}"
-                added_link=true
-            fi
-        fi
-
-        echo "$line"
-    done < "$todos_file" > "$temp_file"
-
+    cp "$todos_file" "${todos_file}.bak" || return 1
+    printf '%s%s' "$updated" "$ending" > "$temp_file" || return 1
     mv "$temp_file" "$todos_file"
 }
 

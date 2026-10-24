@@ -47,16 +47,17 @@ cbc_discharge() {
     fi
     [[ $rc -ne 0 ]] && return $rc
 
-    local rows="" path st gaps=0 total=0
+    local rows="" path st result gaps=0 total=0
     while IFS= read -r path; do
         [[ -z "$path" ]] && continue
         total=$((total + 1))
-        st="$(cbc_gate_status "$path")"
+        result=$(cbc_gate_report "$path") || return 3
+        st=$(printf '%s' "$result" | jq -r '.status') || return 3
         case "$st" in
             discharged|waived) : ;;
             *) gaps=$((gaps + 1)) ;;
         esac
-        rows+="${st}	${path}"$'\n'
+        rows+="$result"$'\n'
     done < <(echo "$mand" | jq -r '.[].path')
     rows=$(printf '%s' "$rows" | sed '/^$/d')
 
@@ -64,16 +65,19 @@ cbc_discharge() {
         if [[ -z "$rows" ]]; then
             echo '{"total":0,"gaps":0,"items":[]}'
         else
-            printf '%s\n' "$rows" | jq -R -s --argjson g "$gaps" --argjson t "$total" \
-                '{total:$t, gaps:$g, items: (split("\n")|map(select(length>0))|map(split("\t"))|map({status:.[0],path:.[1]}))}'
+            printf '%s\n' "$rows" | jq -s --argjson g "$gaps" --argjson t "$total" \
+                '{total:$t, gaps:$g, items:.}'
         fi
     else
         if [[ "$total" -eq 0 ]]; then
             echo "cbc discharge: no CbC-mandatory files in scope."
         else
             echo "cbc discharge: $((total - gaps))/$total discharged or waived ($gaps undischarged)"
-            printf '%s\n' "$rows" | while IFS=$'\t' read -r st path; do
+            printf '%s\n' "$rows" | jq -c '.' | while IFS= read -r result; do
+                st=$(printf '%s' "$result" | jq -r '.status')
+                path=$(printf '%s' "$result" | jq -r '.path')
                 printf '  %-12s %s\n' "$st" "$path"
+                printf '%s' "$result" | jq -r '.claims[]? | "    \(.claim_id): \(.status)"'
             done
         fi
     fi
@@ -84,10 +88,12 @@ cbc_discharge() {
 
 # cbc waive <artifact> --reason TEXT
 cbc_waive() {
-    local artifact="" reason=""
+    local artifact="" reason="" claim_id="" claim_file=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --reason) reason="${2:-}"; shift 2 || true ;;
+            --reason) [[ $# -ge 2 && -n "$2" ]] || return 3; reason="$2"; shift 2 ;;
+            --claim-id) [[ $# -ge 2 && -n "$2" && -z "$claim_id" ]] || return 3; claim_id="$2"; shift 2 ;;
+            --claim) [[ $# -ge 2 && -n "$2" ]] || return 3; claim_file="$2"; shift 2 ;;
             -*) echo "cbc waive: unknown option '$1'" >&2; return 3 ;;
             *) [[ -z "$artifact" ]] && artifact="$1"; shift ;;
         esac
@@ -96,20 +102,24 @@ cbc_waive() {
     [[ -n "$reason" ]]   || { echo "cbc waive: --reason TEXT is required" >&2; return 3; }
     [[ -f "$artifact" ]] || { echo "cbc waive: artifact not found: $artifact" >&2; return 1; }
 
-    local by path
+    local by path ledger
+    ledger=$(cbc_ledger_path "$artifact") || return 3
+    cbc_acceptance_tool select "$artifact" "$ledger" "$claim_id" || return 3
+    [[ -z "$claim_file" || -f "$claim_file" ]] || return 1
     by="$(git config user.email 2>/dev/null || echo unknown)"
-    path="$(cbc_ledger_waive "$artifact" "$reason" "$by")" || return 3
+    path="$(cbc_ledger_waive "$artifact" "$reason" "$by" "$claim_id" "$claim_file")" || return 3
     echo "cbc waive: $artifact -> waived; evidence: $path"
     echo "  gate: $(cbc_gate_status "$artifact")"
 }
 
 # Import only independently signed approval. Never sign or infer approval here.
 cbc_accept() {
-    local artifact="${1:-}" approval="" signature=""
+    local artifact="${1:-}" approval="" signature="" claim_id=""
     [[ -n "$artifact" ]] || return 3
     shift
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --claim-id) [[ $# -ge 2 && -n "$2" && -z "$claim_id" ]] || return 3; claim_id="$2"; shift 2 ;;
             --approval|--signature)
                 [[ $# -ge 2 && -n "$2" ]] || return 3
                 if [[ "$1" == --approval ]]; then approval="$2"; else signature="$2"; fi
@@ -118,10 +128,36 @@ cbc_accept() {
         esac
     done
     [[ -n "$approval" && -n "$signature" ]] || { echo "cbc accept: --approval and --signature are required" >&2; return 3; }
-    cbc_acceptance_tool accept "$artifact" "$(cbc_ledger_path "$artifact")" "$approval" "$signature"
+    local ledger
+    ledger=$(cbc_ledger_path "$artifact") || return 3
+    cbc_acceptance_tool select "$artifact" "$ledger" "$claim_id" || return 3
+    cbc_acceptance_tool accept "$artifact" "$ledger" "$approval" "$signature" "$claim_id"
 }
 
 cbc_acceptance_payload() {
-    [[ $# -eq 1 ]] || { echo "cbc acceptance-payload: artifact required" >&2; return 3; }
-    cbc_acceptance_tool payload "$1" "$(cbc_ledger_path "$1")"
+    local artifact="${1:-}" claim_id="" ledger
+    [[ -n "$artifact" ]] || return 3
+    shift
+    if [[ $# -gt 0 ]]; then
+        [[ $# -eq 2 && "$1" == --claim-id && -n "$2" ]] || return 3
+        claim_id="$2"
+    fi
+    ledger=$(cbc_ledger_path "$artifact") || return 3
+    cbc_acceptance_tool select "$artifact" "$ledger" "$claim_id" || return 3
+    cbc_acceptance_tool payload "$artifact" "$ledger" "$claim_id"
+}
+
+cbc_claim_set() {
+    local artifact="${1:-}" ledger
+    local ids=()
+    [[ -n "$artifact" ]] || return 3
+    shift
+    while [[ $# -gt 0 ]]; do
+        [[ $# -ge 2 && "$1" == --claim-id && -n "$2" ]] || return 3
+        ids+=("$2")
+        shift 2
+    done
+    [[ ${#ids[@]} -gt 0 && -f "$artifact" ]] || return 3
+    ledger=$(cbc_ledger_path "$artifact") || return 3
+    cbc_acceptance_tool claim-set "$artifact" "$ledger" "${ids[@]}" || return 3
 }

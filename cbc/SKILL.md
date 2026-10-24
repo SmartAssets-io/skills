@@ -27,15 +27,17 @@ Subcommands:
                           Inspect hierarchical policy through Git.
   identify  [--scope diff|epic EID|flow FID]
                           List CbC-mandatory files in scope (default: working diff).
-  verify    <artifact> [--adapter mock|agentic|embedded] [--claim PATH] [--prover NAME]
+  claim-set <artifact> --claim-id ID [--claim-id ID ...]
+                          Declare expected independent claims without removing claims.
+  verify    <artifact> [--claim-id ID] [--adapter mock|agentic|embedded] [--claim PATH] [--prover NAME]
                           Run the verifier adapter to discharge the artifact's
                           claim; write an evidence record to docs/cbc-evidence/.
   discharge [--scope diff|epic EID|flow FID] [--strict] [--json]
                           Gate: every in-scope mandatory artifact has a
                           discharged or waived record. --strict exits non-zero on gaps.
-  acceptance-payload <artifact>
-  accept    <artifact> --approval PATH --signature PATH
-  waive     <artifact> --reason TEXT
+  acceptance-payload <artifact> [--claim-id ID]
+  accept    <artifact> [--claim-id ID] --approval PATH --signature PATH
+  waive     <artifact> [--claim-id ID] [--claim PATH] --reason TEXT
                           Record an explicit waiver with rationale against a claim.
   status    [<artifact>] [--json]
                           Show ledger state for an artifact, or a ledger summary.
@@ -59,14 +61,13 @@ Focused skills: /cbc:review, /cbc:scaffold, /cbc:verify. Pi aliases:
 
 # CbC Mission-Critical Code Verification
 
-`/cbc:main` (legacy alias: `/cbc`) is the umbrella CbC skill the Agentic CbC Engineer tier uses to **prove** changes
-to mission-critical code rather than eyeball them. It identifies CbC-mandatory
-files in a change, discharges their correctness claims through a pluggable
-verifier adapter, records auditable **evidence**, and gates completion on any
-undischarged claim unless explicitly waived with a recorded rationale.
+`/cbc:main` (legacy alias: `/cbc`) coordinates verification of mission-critical changes.
+It identifies mandatory files and sends their claims to a verifier adapter.
+It records evidence and blocks completion when verification or required acceptance is missing.
+Explicit waivers need a recorded rationale and do not bypass required acceptance.
 
 It implements [FLOW-009](../../docs/User-Flows.md) and complements `/code-review`:
-review (FLOW-009 step 4) catches correctness bugs *before* the gate;
+review (FLOW-009 step 4) catches correctness bugs *before* the gate.
 `/cbc:verify` discharges the formal claims.
 
 ## Usage
@@ -119,6 +120,7 @@ src/consensus/**.rs   cbc=mandatory cbc-weight=high
 | `cbc` | `mandatory` | Path requires discharge before completion |
 | `cbc-acceptance` | `required` | Path also requires current signed maintainer acceptance |
 | `cbc-weight` | `low` \| `medium` (default) \| `high` | risk x value x cognitive weighting |
+| `cbc-evidence` | Repository-relative directory | Per-artifact evidence location |
 
 > Tags are authored manually or **proposed by `/code-review`'s mission-critical
 > scan** (EPIC-025 TODO-025-006), which scores files by risk x value x
@@ -153,12 +155,128 @@ Before policy redistribution, save a snapshot.
 After redistribution, compare both working-tree and index snapshots.
 Equivalent policy moves retain approval bindings.
 Source moves need fresh verification and required acceptance.
-Per-path evidence routing and enforcement against ambient overrides remain deferred.
+
+Per-artifact evidence routing uses `cbc-evidence`, then `CBC_EVIDENCE_DIR`, then `docs/cbc-evidence`.
+Invalid routing fails instead of selecting another directory.
+An explicit `-cbc-evidence` is invalid.
+Use `!cbc-evidence` to restore environment or default fallback selection.
+Enforcement against ambient overrides remains deferred.
+
+### Evidence directories
+
+Place `cbc-evidence=<directory>` in the artifact's owner policy file.
+Git resolves inherited and overridden values.
+Attribute values must be nonempty relative directory strings inside the worktree.
+Reject Boolean values, escapes, unsafe symlinks, and Git metadata destinations.
+The reserved Git results `set` and `unset` are not directory values.
+Use `./set` or `./unset` if a directory needs one of those names.
+
+Legacy absolute `CBC_EVIDENCE_DIR` overrides work only inside the worktree.
+All affected commands use the same artifact directory, including formal reports and acceptance imports.
+Summary status reports active ledgers across the selected directories.
+Lint validates both worktree and indexed attribute policy.
+Identification validates every candidate path before it selects mandatory paths.
+Invalid routing on a non-mandatory candidate therefore stops identification.
+
+Ledger filenames and artifact IDs use normalized repository-relative paths.
+Equivalent absolute paths and internal `..` components select the same ledger.
+A `./` prefix already produces the same name.
+Older ledgers created from noncanonical arguments do not move automatically.
+Preserve their bytes and review an explicit migration when necessary.
+
+A routing change does not migrate existing evidence.
+Preserve ledger bytes, signed acceptance envelopes, history, and referenced reports during an explicit move.
+Keep referenced reports available at their recorded paths.
+Do not rewrite signed records or create acceptance on another person's behalf.
+
+Several JSON records require explicit claim IDs and a declared inventory.
+Missing or duplicate IDs, missing inventory, and mixed artifact paths produce one `invalid_record` gap.
+Do not select a favorable record or remove an independent claim.
+Consumer owners must preserve original records and signatures during an explicit migration.
+
+### claim-set
+
+Declare every expected independent claim before named verification.
+Keep `--claim-id` separate from `--claim`, which names a claim document.
+
+```bash
+"scripts/cbc.sh" claim-set src/consensus/vote.rs \
+  --claim-id VOTE-SAFETY --claim-id VOTE-LIVENESS
+"scripts/cbc.sh" verify src/consensus/vote.rs \
+  --claim-id VOTE-SAFETY --claim docs/claims/vote-safety.md --adapter agentic
+```
+
+The adjacent `<artifact-id>.claims.json` file uses schema `cbc-claim-set/v1`.
+Its `artifact` identifies the repository-relative source, and `claim_ids` lists the expected IDs.
+IDs are case-sensitive ASCII identifiers with at most 128 characters.
+Start an ID with a letter or digit.
+Use only letters, digits, periods, underscores, and hyphens after the initial character.
+
+Declaration can add IDs but cannot remove existing IDs.
+A missing declared record remains a gap.
+
+Named `verify`, `waive`, `accept`, and `acceptance-payload` operations require `--claim-id`.
+Unknown or ambiguous selections fail before a verifier runs or evidence changes.
+Updates preserve other claim blocks and ledger prose byte-for-byte.
+A new named waiver requires `--claim PATH` unless the selected record already supplies its claim.
+If the claim document changed, supply `--claim PATH` to record the new waiver explicitly.
+
+Record writes and acceptance imports acquire the shared ledger lock before selecting legacy or named behavior.
+Both operations read the current membership under that lock.
+
+New named records use schema `cbc-claim/v1` and require their inventory even when only one record remains.
+A surviving `.claims` directory or archived inventory also identifies a named collection.
+Stripping record fields does not restore legacy behavior while named metadata survives.
+Restore a missing inventory before changing membership when named metadata survives.
+Single legacy records without named metadata retain their current meaning and v1 signatures.
+The tooling does not infer IDs, combine independent claims, or migrate evidence automatically.
+
+The inventory is reviewed policy.
+Direct inventory changes need an independent review.
+Filesystem owners can still replace policy outside these commands.
+
+Evidence writes require POSIX filesystem locks, with a five-second acquisition limit.
+Add this rule to the consumer's root `.gitignore`:
+
+```gitignore
+*.claims.lock
+```
+
+The rule excludes untracked lock files, not files already tracked by Git.
+Consumer owners must separately review changes to tracked lock files.
+Do not delete a lock file while commands run.
+
+### Consumer migration
+
+Migration is manual, consumer-owned, and independently reviewed.
+The tooling provides no migration command.
+Keep changes on the consumer's approved adoption branch.
+
+1. Preserve original ledgers, inventories, acceptance envelopes, reports, and history before you edit evidence.
+2. Assign an explicit `claim_id` and schema `cbc-claim/v1` to each independent record.
+3. Place every record in the artifact's selected ledger without combining claim meanings.
+4. Obtain an independent review of the record mapping and preserved originals.
+5. Declare the complete ID set with `claim-set`.
+6. Reverify claims that lack current input bindings.
+7. Obtain required v2 acceptance for each current claim.
+8. Run strict discharge for all affected artifacts.
+
+Do not invent input bindings, verification results, or approval fields.
+Do not change claim text, statuses, evidence, or waiver reasons merely to remove a gap.
+
+### Tooling revision
+
+For consumer acceptance or migration runs, use an immutable checkout of the approved tooling commit or release tag.
+Confirm that the tooling checkout has no tracked changes.
+Record the full tooling commit ID with verification results.
+A recorded pin does not constrain a shared checkout on `dev`.
+Consumer owners configure invocation paths and confirm the executed revision.
+This tooling change does not switch consumer checkouts automatically.
 
 ### verify
 
 Run a verifier adapter to discharge the artifact's claim and write an evidence
-record. The adapter is pluggable; selection is variant-agnostic.
+record. The adapter is pluggable. Selection is variant-agnostic.
 
 ```bash
 # Agentic (reference): LLM proposes annotations/proof, verifier discharges
@@ -176,15 +294,25 @@ record. The adapter is pluggable; selection is variant-agnostic.
 
 | Adapter | Use | Reference tools |
 |---------|-----|-----------------|
-| `agentic` | Default. LLM proposes, verifier discharges; counterexamples loop back | ProofWright, Lean Copilot (+ `lib/llm-client.sh`) |
-| `embedded` | Smart contracts / systems code with embedded `requires`/`ensures`; Dafny/Z3 runs prefer `pi-formal-verify` for JSON evidence | Move Prover, Verus, Dafny, Z3, `pi-formal-verify` |
+| `agentic` | Default. LLM proposes, verifier discharges. Counterexamples loop back | ProofWright, Lean Copilot (+ `lib/llm-client.sh`) |
+| `embedded` | Smart contracts / systems code with embedded `requires`/`ensures`. Dafny/Z3 runs prefer `pi-formal-verify` for JSON evidence | Move Prover, Verus, Dafny, Z3, `pi-formal-verify` |
 
 ### discharge
 
 Gate check across the scope. Exits `0` when every in-scope mandatory artifact
-has a `discharged` or `waived` evidence record; `--strict` exits non-zero when
+has a `discharged` or `waived` evidence record. `--strict` exits non-zero when
 any gap remains. This is the read side of the gate that `/task-complete` also
 consults.
+
+Every declared claim must pass, including required acceptance for waived claims.
+Artifact results include per-claim results and count each artifact once.
+The aggregate status uses this precedence:
+
+```text
+invalid_record > refuted > error > pending > none > acceptance_required > waived > discharged
+```
+
+The aggregate reason never removes another claim's gap.
 
 ```bash
 "scripts/cbc.sh" discharge --scope epic EPIC-025 --strict
@@ -234,11 +362,19 @@ ssh-keygen -Y sign -f /path/to/maintainer-key -n cbc-acceptance approval.json
 "scripts/cbc.sh" discharge --files src/example.rs --strict
 ```
 
-Acceptance resides in `<artifact-id>.acceptance.json` beside the evidence ledger.
-The evidence digest covers the ledger, including hashes of referenced evidence files.
+Legacy v1 acceptance resides in `<artifact-id>.acceptance.json` beside the evidence ledger.
+Its evidence digest covers the complete ledger and the recorded hashes of referenced evidence files.
 It excludes the acceptance file to avoid a self-referential digest.
-Changes to source, claim, verification records, or referenced evidence invalidate acceptance.
-A new verification run requires a new approval, even when source bytes remain unchanged.
+Changes to source, claim, verification records, or referenced evidence invalidate that acceptance.
+
+Named collections use per-claim `cbc-acceptance/v2` approvals in the same SSH signature namespace.
+Store each envelope under `<artifact-id>.claims/<sha256-of-claim-id>.acceptance.json`.
+The payload binds the claim ID, source, claim document, canonical selected record, referenced reports, and normalized inventory.
+Updates to another record preserve an unchanged claim's approval when membership stays unchanged.
+Membership changes invalidate all earlier v2 approvals.
+
+A new verification run requires new approval for the selected claim, even when source bytes remain unchanged.
+Never reinterpret a v1 signature as per-claim acceptance.
 
 Replacement records preserve earlier bytes under `history/`.
 Formal reports use unique filenames.
@@ -267,19 +403,19 @@ artifacts satisfy the verification requirement but do not bypass required accept
 
 ### status
 
-Show the ledger record for an artifact, or a summary across `docs/cbc-evidence/`.
+Show one artifact's status or a summary across the active evidence directories.
 
 ```bash
 "scripts/cbc.sh" status contracts/escrow.move
-"scripts/cbc.sh" status --json
+"scripts/cbc.sh" status
 ```
 
 ## Evidence records
 
-One Markdown file per artifact under `docs/cbc-evidence/`, with an embedded
-machine-readable JSON block. When the embedded adapter uses `pi-formal-verify`
-for Dafny or Z3, it also writes backend evidence JSON under
-`docs/cbc-evidence/formal/` and links it from the Markdown ledger record.
+Each artifact has one Markdown ledger in its selected evidence directory.
+The ledger contains one legacy JSON record or one named JSON record for each declared claim.
+Formal verification writes backend JSON under `formal/` in that directory.
+The ledger references each backend report.
 
 ```json
 {
@@ -301,7 +437,8 @@ for Dafny or Z3, it also writes backend evidence JSON under
 |--------|-------------|
 | `--scope diff\|epic EID\|flow FID` | Selection scope (default: working diff) |
 | `--adapter mock\|agentic\|embedded` | Verifier adapter (default: `agentic`; `mock` is test-only) |
-| `--claim PATH` | Claim/specification file for `verify` |
+| `--claim-id ID` | Stable selector for a named claim or a repeated inventory member |
+| `--claim PATH` | Claim document for verification or a new named waiver |
 | `--prover NAME` | Embedded-adapter prover (e.g. `move`, `verus`, `dafny`, `z3`, `pi-formal-verify`) |
 | `--reason TEXT` | Waiver rationale (required for `waive`) |
 | `--strict` | `discharge` exits non-zero on any gap |
@@ -316,8 +453,8 @@ for Dafny or Z3, it also writes backend evidence JSON under
 | 0 | Success / all in-scope claims discharged or waived |
 | 1 | Artifact or claim not found |
 | 2 | Verification refuted (counterexample recorded) |
-| 3 | Adapter/tooling error (verifier unavailable) |
-| 4 | Undischarged claims remain (`discharge --strict`) |
+| 3 | Invalid policy or selection, unavailable verifier, or command error |
+| 4 | Strict discharge gaps or invalid acceptance |
 
 ## Environment Variables
 
@@ -328,7 +465,7 @@ for Dafny or Z3, it also writes backend evidence JSON under
 | `CBC_ADAPTER` | Default adapter when `--adapter` is omitted |
 | `CBC_PROVER` | Embedded adapter prover when `--prover` is omitted (`move`, `verus`, `dafny`, `z3`, or `pi-formal-verify`) |
 | `PI_FORMAL_VERIFY_CLI` | Optional absolute path to the `pi-formal-verify` CLI |
-| `PI_FORMAL_VERIFY_PATH` | Optional path to a `pi-formal-verify` checkout; otherwise CbC searches PATH, the current git root, and the standard sibling workspace location |
+| `PI_FORMAL_VERIFY_PATH` | Optional path to a `pi-formal-verify` checkout. Otherwise CbC searches PATH, the current git root, and the standard sibling workspace location |
 
 ## Formal verification bridge
 
@@ -340,7 +477,12 @@ scripts/setup-pi.sh --local --with-formal-verify
 scripts/setup-pi.sh --local --formal-verify /path/to/pi-formal-verify
 ```
 
-When `CBC_PROVER=dafny`, `CBC_PROVER=z3`, or `--prover dafny|z3` is used with `--adapter embedded`, CbC prefers the `pi-formal-verify` CLI. It searches `PI_FORMAL_VERIFY_CLI`, `PI_FORMAL_VERIFY_PATH`, PATH, and the standard sibling workspace layout. It writes formal JSON evidence under `docs/cbc-evidence/formal/` and references that file from the CbC ledger record. A `discharged` formal status satisfies verification, but required acceptance remains separate. `refuted`, `unknown`, or `tool_error` remain not discharged.
+For Dafny or Z3 with `--adapter embedded`, CbC prefers the `pi-formal-verify` CLI.
+It searches `PI_FORMAL_VERIFY_CLI`, `PI_FORMAL_VERIFY_PATH`, PATH, and the standard sibling workspace layout.
+It writes formal JSON under `formal/` in the artifact's evidence directory.
+The ledger references that report.
+A `discharged` formal status satisfies verification, but required acceptance remains separate.
+`refuted`, `unknown`, or `tool_error` remain not discharged.
 
 ## Related Commands
 

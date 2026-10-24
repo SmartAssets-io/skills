@@ -16,12 +16,13 @@ source "$_CBC_VERIFY_DIR/cbc-ledger.sh"
 
 # cbc verify <artifact> [--adapter NAME] [--claim PATH] [--prover NAME]
 cbc_verify() {
-    local artifact="" adapter="${CBC_ADAPTER:-agentic}" claim_file=""
+    local artifact="" adapter="${CBC_ADAPTER:-agentic}" claim_file="" claim_id="" ledger
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --adapter) adapter="${2:-}"; shift 2 || true ;;
-            --claim)   claim_file="${2:-}"; shift 2 || true ;;
-            --prover)  export CBC_PROVER="${2:-}"; shift 2 || true ;;
+            --adapter) [[ $# -ge 2 && -n "$2" ]] || return 3; adapter="$2"; shift 2 ;;
+            --claim) [[ $# -ge 2 && -n "$2" ]] || return 3; claim_file="$2"; shift 2 ;;
+            --claim-id) [[ $# -ge 2 && -n "$2" && -z "$claim_id" ]] || return 3; claim_id="$2"; shift 2 ;;
+            --prover) [[ $# -ge 2 && -n "$2" ]] || return 3; export CBC_PROVER="$2"; shift 2 ;;
             -*)        echo "cbc verify: unknown option '$1'" >&2; return 3 ;;
             *)         [[ -z "$artifact" ]] && artifact="$1"; shift ;;
         esac
@@ -30,6 +31,8 @@ cbc_verify() {
     [[ -n "$artifact" ]] || { echo "cbc verify: artifact required" >&2; return 3; }
     [[ -f "$artifact" ]] || { echo "cbc verify: artifact not found: $artifact" >&2; return 1; }
 
+    ledger=$(cbc_ledger_path "$artifact") || return 3
+    cbc_acceptance_tool select "$artifact" "$ledger" "$claim_id" || return 3
     local adapter_file="$_CBC_VERIFY_DIR/cbc-adapters/${adapter}.sh"
     [[ -f "$adapter_file" ]] || { echo "cbc verify: unknown adapter '$adapter'" >&2; return 3; }
     # shellcheck source=/dev/null
@@ -62,7 +65,7 @@ cbc_verify() {
     esac
 
     local path
-    path="$(cbc_ledger_write "$artifact" "$commit" "$claim" "$(cbc_adapter_name)" "$status" "$evidence" null "$claim_file" "$inputs")" || return 3
+    path="$(cbc_ledger_write "$artifact" "$commit" "$claim" "$(cbc_adapter_name)" "$status" "$evidence" null "$claim_file" "$inputs" "$claim_id")" || return 3
 
     echo "cbc verify: $artifact -> $status (adapter: $adapter)"
     echo "  evidence: $path"
@@ -70,26 +73,94 @@ cbc_verify() {
     return "$rc"
 }
 
-# cbc status [<artifact>]
+_cbc_status_details() {
+    local artifact="$1" ledger="$2" metadata="${3:-}" gate
+    [[ -n "$metadata" ]] || metadata=$(cbc_acceptance_tool metadata "$artifact" "$ledger") || return 3
+    gate=$(cbc_gate_report "$artifact") || return 3
+    jq -cn --arg path "$artifact" --argjson raw "$metadata" --argjson gate "$gate" '
+        {path:$path,status:$raw.status,gate:$gate.status} +
+        (if $raw.claims then {claims: [$raw.claims[] | . as $claim |
+          . + {gate: ([$gate.claims[]? | select(.claim_id == $claim.claim_id) | .status][0] // $gate.status)}]}
+         else {} end)'
+}
+
+# cbc status [<artifact>] [--json]
 cbc_status() {
-    local artifact="${1:-}"
-    if [[ -n "$artifact" ]]; then
-        echo "$artifact: $(cbc_ledger_status "$artifact") (gate: $(cbc_gate_status "$artifact"))"
-        return 0
-    fi
-    local dir; dir="$(cbc_ledger_dir)"
-    if [[ ! -d "$dir" ]]; then
-        echo "No evidence ledger yet ($dir)."
-        return 0
-    fi
-    local f any=0
-    for f in "$dir"/*.md; do
-        [[ -e "$f" ]] || continue
-        any=1
-        local st; st="$(awk '/^```json/{f=1;next} /^```/{f=0} f' "$f" | jq -r '.status // "?"' 2>/dev/null)"
-        local p;  p="$(awk '/^```json/{f=1;next} /^```/{f=0} f' "$f" | jq -r '.artifact.path // "?"' 2>/dev/null)"
-        printf '  %-12s %s\n' "$st" "$p"
+    local artifact="" json=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json=1 ;;
+            -*) echo "cbc status: unknown option '$1'" >&2; return 3 ;;
+            *) [[ -z "$artifact" ]] || return 3; artifact="$1" ;;
+        esac
+        shift
     done
-    [[ "$any" -eq 0 ]] && echo "No evidence records in $dir."
+    if [[ -n "$artifact" ]]; then
+        local ledger result status gate
+        ledger=$(cbc_ledger_path "$artifact") || return 3
+        result=$(_cbc_status_details "$artifact" "$ledger") || return 3
+        if [[ "$json" -eq 1 ]]; then
+            printf '%s\n' "$result"
+        else
+            status=$(printf '%s' "$result" | jq -r '.status')
+            gate=$(printf '%s' "$result" | jq -r '.gate')
+            echo "$artifact: $status (gate: $gate)"
+            printf '%s' "$result" | jq -r '.claims[]? | "    \(.claim_id): \(.status) (gate: \(.gate))"'
+        fi
+        return 0
+    fi
+    local directories dir f details active st p prior duplicate row identity aggregate_gate rows="" any=0
+    local seen=()
+    directories=$(python3 "$_CBC_VERIFY_DIR/cbc-attributes.py" evidence-dirs) || return 3
+    while IFS= read -r dir; do
+        for f in "$dir"/*.md "$dir"/*.claims.json; do
+            [[ -e "$f" ]] || continue
+            identity="$f"
+            [[ "$f" == *.claims.json ]] && f="${f%.claims.json}.md"
+            f="${f#./}"
+            [[ -e "$f" ]] && identity="$f"
+            details=$(cbc_acceptance_tool metadata "" "$f") || return 3
+            st=$(printf '%s' "$details" | jq -r '.status')
+            p=$(printf '%s' "$details" | jq -r '.artifact // empty')
+            if [[ -n "$p" ]]; then
+                active=$(cbc_ledger_path "$p") || return 3
+                if [[ -e "$f" ]]; then
+                    [[ "$active" -ef "$f" ]] || continue
+                else
+                    [[ "${active%.md}.claims.json" -ef "$identity" ]] || continue
+                fi
+            fi
+            duplicate=0
+            for prior in "${seen[@]}"; do
+                if [[ "$prior" -ef "$identity" ]]; then
+                    duplicate=1
+                    break
+                fi
+            done
+            [[ "$duplicate" -eq 0 ]] || continue
+            seen+=("$identity")
+            any=1
+            row=$(printf '%s' "$details" | jq -c --arg path "${p:-$f}" 'del(.artifact) + {path:$path}')
+            if [[ -n "$p" ]] && printf '%s' "$details" | jq -e 'has("claims")' >/dev/null; then
+                row=$(_cbc_status_details "$p" "$f" "$details") || return 3
+            fi
+            if [[ "$json" -eq 1 ]]; then
+                rows+="$row"$'\n'
+            else
+                if printf '%s' "$row" | jq -e 'has("gate")' >/dev/null; then
+                    aggregate_gate=$(printf '%s' "$row" | jq -r '.gate')
+                    printf '  %-12s %s (gate: %s)\n' "$st" "${p:-$f}" "$aggregate_gate"
+                else
+                    printf '  %-12s %s\n' "$st" "${p:-$f}"
+                fi
+                printf '%s' "$row" | jq -r '.claims[]? | "    \(.claim_id): \(.status) (gate: \(.gate // .status))"'
+            fi
+        done
+    done < <(printf '%s' "$directories" | jq -r '.[]')
+    if [[ "$json" -eq 1 ]]; then
+        printf '%s' "$rows" | jq -s '.'
+    elif [[ "$any" -eq 0 ]]; then
+        echo "No evidence ledger yet in the selected directories."
+    fi
     return 0
 }
