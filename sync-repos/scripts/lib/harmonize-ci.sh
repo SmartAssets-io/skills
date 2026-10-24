@@ -225,6 +225,9 @@ process_markdown_link_check() {
     local reference_report
     if reference_report=$(reference_conformance_report "$repo_path"); then
         log_action "OK" "Reference conformance: $reference_report"
+    elif [[ "$(jq -r '.status' <<<"$reference_report" 2>/dev/null)" == "no-validator" ]]; then
+        # The consumer repository selects its validator, so this gap is not a harmonize failure.
+        log_warning "Reference conformance: $reference_report"
     else
         log_action "ERROR" "Reference conformance: $reference_report"
         _mlc_error=true

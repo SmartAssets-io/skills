@@ -31,18 +31,20 @@ usage() {
             Inspect effective hierarchical policy without changing attributes.
   identify  [--scope diff|epic <EID>] [--files "a b c"] [--base <ref>] [--json]
             List CbC-mandatory files in scope (default: working diff vs HEAD).
-  verify    <artifact> [--adapter mock|agentic|embedded] [--claim PATH] [--prover NAME]
+  claim-set <artifact> --claim-id ID [--claim-id ID ...]
+            Declare expected claims without dropping an existing claim.
+  verify    <artifact> [--claim-id ID] [--adapter mock|agentic|embedded] [--claim PATH] [--prover NAME]
             Discharge the artifact's claim via a verifier adapter; record evidence.
-  status    [<artifact>]
+  status    [<artifact>] [--json]
             Show ledger state for an artifact, or a summary across the ledger.
   discharge [--scope diff|epic <EID>] [--files "a b c"] [--strict] [--json]
             Gate: every in-scope CbC-mandatory artifact must be discharged or
             waived. --strict exits non-zero when any remain undischarged.
-  acceptance-payload <artifact>
+  acceptance-payload <artifact> [--claim-id ID]
             Print the unsigned binding for independent maintainer review.
-  accept    <artifact> --approval PATH --signature PATH
+  accept    <artifact> [--claim-id ID] --approval PATH --signature PATH
             Import a signed approval from an authorized maintainer.
-  waive     <artifact> --reason TEXT
+  waive     <artifact> [--claim-id ID] [--claim PATH] --reason TEXT
             Record an explicit waiver (rationale) against an artifact.
 
 CbC-mandatory code is tagged via git attributes (cbc=mandatory). Tags are read
@@ -60,6 +62,9 @@ main() {
             ;;
         identify)
             cbc_identify "$@"
+            ;;
+        claim-set)
+            cbc_claim_set "$@"
             ;;
         verify)
             cbc_verify "$@"

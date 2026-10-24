@@ -147,18 +147,18 @@ extract_yaml_blocks() {
 is_epic_block() {
     local yaml="$1"
     # Check for either format: "id: EPIC-" or "epic_id: EPIC-"
-    if echo "$yaml" | grep -qE '^id:[[:space:]]*EPIC-'; then
+    if grep -qE '^id:[[:space:]]*EPIC-' <<<"$yaml"; then
         # Filter out template/example epics (XXX, NNN, YYY patterns)
-        if echo "$yaml" | grep -qE '^id:[[:space:]]*EPIC-(XXX|NNN|YYY)'; then
+        if grep -qE '^id:[[:space:]]*EPIC-(XXX|NNN|YYY)' <<<"$yaml"; then
             echo "false"
             return
         fi
         echo "true"
         return
     fi
-    if echo "$yaml" | grep -qE '^epic_id:[[:space:]]*EPIC-'; then
+    if grep -qE '^epic_id:[[:space:]]*EPIC-' <<<"$yaml"; then
         # Filter out template/example epics (XXX, NNN, YYY patterns)
-        if echo "$yaml" | grep -qE '^epic_id:[[:space:]]*EPIC-(XXX|NNN|YYY)'; then
+        if grep -qE '^epic_id:[[:space:]]*EPIC-(XXX|NNN|YYY)' <<<"$yaml"; then
             echo "false"
             return
         fi
@@ -177,29 +177,29 @@ is_epic_block() {
 is_flat_task_block() {
     local yaml="$1"
     # Must have id field
-    if ! echo "$yaml" | grep -qE '^id:'; then
+    if ! grep -qE '^id:' <<<"$yaml"; then
         echo "false"
         return
     fi
     # Must NOT have epic_id (that's an epic, not a flat task)
-    if echo "$yaml" | grep -qE '^epic_id:'; then
+    if grep -qE '^epic_id:' <<<"$yaml"; then
         echo "false"
         return
     fi
     # Must NOT have id: EPIC- (that's an epic in satchelUX format)
-    if echo "$yaml" | grep -qE '^id:[[:space:]]*EPIC-'; then
+    if grep -qE '^id:[[:space:]]*EPIC-' <<<"$yaml"; then
         echo "false"
         return
     fi
     # Must NOT have tasks: array (that's an epic structure)
-    if echo "$yaml" | grep -qE '^tasks:'; then
+    if grep -qE '^tasks:' <<<"$yaml"; then
         echo "false"
         return
     fi
     # Filter out template IDs (XXX, NNN patterns)
-    if echo "$yaml" | grep -qE '^id:[[:space:]]*(TODO|TASK|XXX|NNN)-'; then
+    if grep -qE '^id:[[:space:]]*(TODO|TASK|XXX|NNN)-' <<<"$yaml"; then
         local id_val
-        id_val=$(echo "$yaml" | grep -E '^id:' | head -1 | sed 's/^id:[[:space:]]*//')
+        id_val=$(grep -m1 -E '^id:' <<<"$yaml" | sed 's/^id:[[:space:]]*//')
         if [[ "$id_val" =~ (XXX|NNN|YYY) ]]; then
             echo "false"
             return
@@ -255,7 +255,83 @@ extract_delimited_blocks() {
 extract_field() {
     local yaml="$1"
     local field="$2"
-    echo "$yaml" | grep -E "^${field}:" | sed "s/^${field}:[[:space:]]*//" | tr -d '"' | head -1
+    { grep -m1 -E "^${field}:" <<<"$yaml" || true; } | sed "s/^${field}:[[:space:]]*//" | tr -d '"'
+}
+
+#
+# Extract a top-level field value without removing quotes or brackets
+# Usage: extract_raw_field "yaml_text" "field_name"
+#
+extract_raw_field() {
+    local yaml="$1"
+    local field="$2"
+    { grep -m1 -E "^${field}:" <<<"$yaml" || true; } | sed "s/^${field}:[[:space:]]*//"
+}
+
+#
+# Convert a YAML flow list ("[a, b]", '["x y", "z"]') or a comma-separated
+# value into a compact JSON array of strings. Quoted items keep their text,
+# including spaces and commas. Unquoted items are trimmed. jq builds the
+# output, so an item never corrupts the JSON.
+#
+_ep_flow_list_to_json() {
+    local raw="$1"
+    raw="${raw#"${raw%%[![:space:]]*}"}"
+    raw="${raw%"${raw##*[![:space:]]}"}"
+    [[ "$raw" == \[* ]] || raw="[$raw]"
+
+    local parsed
+    if parsed=$(jq -ce 'if type == "array" and all(.[]; type == "string")
+                        then map(select(length > 0)) else error end' <<<"$raw" 2>/dev/null); then
+        printf '%s' "$parsed"
+        return 0
+    fi
+
+    raw="${raw#[}"; raw="${raw%]}"
+    local items=() item
+    local IFS=','
+    for item in $raw; do
+        item="${item#"${item%%[![:space:]]*}"}"
+        item="${item%"${item##*[![:space:]]}"}"
+        item="${item#\"}"; item="${item%\"}"
+        item="${item#\'}"; item="${item%\'}"
+        [[ -n "$item" ]] && items+=("$item")
+    done
+    jq -cn '$ARGS.positional' --args ${items[@]+"${items[@]}"}
+}
+
+#
+# Read inline and block story lists without changing the singular link field.
+#
+_ep_story_list_to_json() {
+    local yaml="$1" line raw="" in_list=false item
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^user_stories:[[:space:]]*(.*)$ ]]; then
+            raw="${BASH_REMATCH[1]}"
+            raw="${raw%%#*}"
+            raw="${raw%"${raw##*[![:space:]]}"}"
+            if [[ "$raw" == "null" || "$raw" == '~' ]]; then
+                printf '[]'
+                return
+            fi
+            if [[ -n "$raw" ]]; then
+                _ep_flow_list_to_json "$raw"
+                return
+            fi
+            in_list=true
+            continue
+        fi
+        if [[ "$in_list" == true ]]; then
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]+(.*)$ ]]; then
+                item="${BASH_REMATCH[1]}"
+                item="${item%%#*}"
+                raw+="${raw:+,}${item}"
+            elif [[ ! "$line" =~ ^[[:space:]]*($|#) ]]; then
+                break
+            fi
+        fi
+    done <<< "$yaml"
+    _ep_flow_list_to_json "$raw"
 }
 
 #
@@ -515,9 +591,6 @@ parse_single_task() {
         description="$multiline_content"
     fi
 
-    # Clean up blocked_by (remove brackets if array format)
-    blocked_by="${blocked_by#\[}"
-    blocked_by="${blocked_by%\]}"
 
     # Skip if no id
     if [[ -z "$id" ]]; then
@@ -546,27 +619,7 @@ parse_single_task() {
     if [[ -n "$completed_date" ]]; then
         json+=",\"completed_date\":\"$completed_date\""
     fi
-    if [[ -n "$blocked_by" ]]; then
-        # Convert comma-separated to JSON array
-        local blocked_arr="["
-        local first=true
-        IFS=',' read -ra items <<< "$blocked_by"
-        for item in "${items[@]}"; do
-            item=$(echo "$item" | tr -d ' ')
-            if [[ -n "$item" ]]; then
-                if [[ "$first" == true ]]; then
-                    first=false
-                else
-                    blocked_arr+=","
-                fi
-                blocked_arr+="\"$item\""
-            fi
-        done
-        blocked_arr+="]"
-        json+=",\"blocked_by\":$blocked_arr"
-    else
-        json+=",\"blocked_by\":[]"
-    fi
+    json+=",\"blocked_by\":$(_ep_flow_list_to_json "$blocked_by")"
 
     json+=",\"files\":$files_json"
     json+=",\"unit_tests\":$(_ep_bracket_list_to_json "$unit_tests")"
@@ -622,7 +675,7 @@ parse_epic_block() {
     title=$(extract_field "$yaml" "title")
     status=$(extract_field "$yaml" "status")
     priority=$(extract_field "$yaml" "priority")
-    blocked_by=$(extract_field "$yaml" "blocked_by" | tr -d '[]')
+    blocked_by=$(extract_raw_field "$yaml" "blocked_by")
     user_story=$(extract_field "$yaml" "user_story")
     local completion_gaps
     completion_gaps=$(extract_field "$yaml" "completion_gaps")
@@ -645,26 +698,7 @@ parse_epic_block() {
     json+=",\"status\":\"${status:-pending}\""
     json+=",\"priority\":\"$priority\""
 
-    if [[ -n "$blocked_by" ]]; then
-        local blocked_arr="["
-        local first=true
-        IFS=',' read -ra items <<< "$blocked_by"
-        for item in "${items[@]}"; do
-            item=$(echo "$item" | tr -d ' "')
-            if [[ -n "$item" ]]; then
-                if [[ "$first" == true ]]; then
-                    first=false
-                else
-                    blocked_arr+=","
-                fi
-                blocked_arr+="\"$item\""
-            fi
-        done
-        blocked_arr+="]"
-        json+=",\"blocked_by\":$blocked_arr"
-    else
-        json+=",\"blocked_by\":[]"
-    fi
+    json+=",\"blocked_by\":$(_ep_flow_list_to_json "$blocked_by")"
 
     if [[ -n "$user_story" ]] && [[ "$user_story" != "null" ]]; then
         json+=",\"user_story\":\"$user_story\""
@@ -672,6 +706,7 @@ parse_epic_block() {
         json+=",\"user_story\":\"\""
     fi
 
+    json+=",\"user_stories\":$(_ep_story_list_to_json "$yaml")"
     json+=",\"completion_gaps\":$(_ep_bracket_list_to_json "$completion_gaps")"
     json+=",\"tasks\":$tasks_json"
     json+="}"
@@ -763,17 +798,17 @@ parse_flat_tasks() {
 is_task_definition() {
     local yaml="$1"
     # Must have id field
-    if ! echo "$yaml" | grep -qE '^id:'; then
+    if ! grep -qE '^id:' <<<"$yaml"; then
         echo "false"
         return
     fi
     # Must NOT be an EPIC
-    if echo "$yaml" | grep -qE '^id:[[:space:]]*EPIC-'; then
+    if grep -qE '^id:[[:space:]]*EPIC-' <<<"$yaml"; then
         echo "false"
         return
     fi
     # Must have title (to distinguish from other YAML blocks)
-    if ! echo "$yaml" | grep -qE '^title:'; then
+    if ! grep -qE '^title:' <<<"$yaml"; then
         echo "false"
         return
     fi
@@ -800,7 +835,7 @@ parse_epics() {
         if [[ "$line" == "---BLOCK_END---" ]]; then
             if [[ -n "$current_yaml_block" ]]; then
                 # Check if this yaml block contains --- delimited sub-blocks
-                if echo "$current_yaml_block" | grep -q '^---$'; then
+                if grep -q '^---$' <<<"$current_yaml_block"; then
                     # Extract each --- delimited sub-block
                     local sub_block=""
                     while IFS= read -r sub_line; do
@@ -868,7 +903,7 @@ parse_epics() {
         title=$(extract_field "$block" "title")
         status=$(extract_field "$block" "status")
         priority=$(extract_field "$block" "priority")
-        blocked_by=$(extract_field "$block" "blocked_by" | tr -d '[]')
+        blocked_by=$(extract_raw_field "$block" "blocked_by")
         user_story=$(extract_field "$block" "user_story")
         local epic_completion_gaps
         epic_completion_gaps=$(extract_field "$block" "completion_gaps")
@@ -912,26 +947,7 @@ parse_epics() {
         epic_json+=",\"status\":\"${status:-pending}\""
         epic_json+=",\"priority\":\"$priority\""
 
-        if [[ -n "$blocked_by" ]]; then
-            local blocked_arr="["
-            local first=true
-            IFS=',' read -ra items <<< "$blocked_by"
-            for item in "${items[@]}"; do
-                item=$(echo "$item" | tr -d ' "')
-                if [[ -n "$item" ]]; then
-                    if [[ "$first" == true ]]; then
-                        first=false
-                    else
-                        blocked_arr+=","
-                    fi
-                    blocked_arr+="\"$item\""
-                fi
-            done
-            blocked_arr+="]"
-            epic_json+=",\"blocked_by\":$blocked_arr"
-        else
-            epic_json+=",\"blocked_by\":[]"
-        fi
+        epic_json+=",\"blocked_by\":$(_ep_flow_list_to_json "$blocked_by")"
 
         if [[ -n "$user_story" ]] && [[ "$user_story" != "null" ]]; then
             epic_json+=",\"user_story\":\"$user_story\""
@@ -939,6 +955,7 @@ parse_epics() {
             epic_json+=",\"user_story\":\"\""
         fi
 
+        epic_json+=",\"user_stories\":$(_ep_story_list_to_json "$block")"
         epic_json+=",\"completion_gaps\":$(_ep_bracket_list_to_json "$epic_completion_gaps")"
         epic_json+=",\"tasks\":$tasks_json"
         epic_json+="}"

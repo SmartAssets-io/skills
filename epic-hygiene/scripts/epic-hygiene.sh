@@ -119,11 +119,23 @@ analyze_todos() {
 
     # Use epic-parser library to parse all epics with nested tasks
     local epics_json
+    rm -f "$EPIC_PARSER_STRICT_MARKER"
     epics_json=$(parse_epics "$todos_file")
+
+    # Strict mode drops each rejected item, so counts from the rest are wrong.
+    if [[ -f "$EPIC_PARSER_STRICT_MARKER" ]]; then
+        rm -f "$EPIC_PARSER_STRICT_MARKER"
+        log_error "strict mode rejected values in $todos_file (see the messages above). Fix them, or set BF_TODO_PARSER_STRICT=0 during migration."
+        return 1
+    fi
 
     if [[ -z "$epics_json" ]] || [[ "$epics_json" == "[]" ]]; then
         log_verbose "No epics found in $todos_file"
         epics_json="[]"
+    elif ! jq -e 'type == "array"' <<<"$epics_json" >/dev/null 2>&1; then
+        # A parse failure must not look like a file without archivable epics.
+        log_error "Could not parse epics in $todos_file: the parser output is not a JSON array"
+        return 1
     fi
 
     # Analyze epics using jq to find those ready to archive

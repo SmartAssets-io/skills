@@ -221,6 +221,16 @@ get_status_color() {
     esac
 }
 
+# Render a capability with one leading infinitive marker.
+story_capability_phrase() {
+    local capability="$1"
+    if [[ "$capability" =~ ^to[[:space:]] ]]; then
+        printf '%s' "$capability"
+    else
+        printf 'to %s' "$capability"
+    fi
+}
+
 #
 # Mode: Create new story (interactive wizard or non-interactive with flags)
 #
@@ -422,6 +432,7 @@ mode_create() {
     next_id=$(get_next_story_id "$USER_STORIES_FILE")
 
     # Generate story markdown
+    capability=$(story_capability_phrase "$capability")
     local story_md=""
     story_md+="#### ${next_id}: ${title}\n\n"
     story_md+="> As a **${persona}**, I want **${capability}** so that **${benefit}**.\n\n"
@@ -527,7 +538,7 @@ mode_sync() {
 
     local total_epics linked_epics orphan_epics
     total_epics=$(echo "$epics_json" | jq 'length')
-    linked_epics=$(echo "$epics_json" | jq '[.[] | select(.user_story != null and .user_story != "")] | length')
+    linked_epics=$(echo "$epics_json" | jq '[.[] | select((.user_story // "") != "" or ((.user_stories // []) | length) > 0)] | length')
     orphan_epics=$((total_epics - linked_epics))
 
     echo "Stories: ${total_stories} total"
@@ -553,7 +564,7 @@ mode_sync() {
         draw_line "middle"
         draw_content "Orphan Epics (no story)"
         draw_line "middle"
-        echo "$epics_json" | jq -r '.[] | select(.user_story == null or .user_story == "") | "  \(.epic_id)  \(.title)"'
+        echo "$epics_json" | jq -r '.[] | select((.user_story // "") == "" and ((.user_stories // []) | length) == 0) | "  \(.epic_id)  \(.title)"'
         echo ""
     fi
 
@@ -619,6 +630,7 @@ review_single_story() {
 
     # Story statement
     if [[ -n "$persona" ]] && [[ -n "$capability" ]] && [[ -n "$benefit" ]]; then
+        capability=$(story_capability_phrase "$capability")
         echo "As a **${persona}**, I want **${capability}**"
         echo "so that **${benefit}**."
         echo ""

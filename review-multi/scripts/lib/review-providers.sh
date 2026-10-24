@@ -291,7 +291,10 @@ _validate_providers() {
 # List enabled providers
 #
 providers_list_enabled() {
-    printf '%s\n' "${ENABLED_PROVIDERS[@]}"
+    # printf emits one empty line for an empty array unless it is guarded.
+    if [[ ${#ENABLED_PROVIDERS[@]} -gt 0 ]]; then
+        printf '%s\n' "${ENABLED_PROVIDERS[@]}"
+    fi
 }
 
 #

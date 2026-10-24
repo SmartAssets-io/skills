@@ -74,8 +74,8 @@ cbc_adapter_available() {
 
 cbc_formal_evidence_path() {
 	local artifact="$1" backend="$2" dir id ts run_dir
-	dir="${CBC_EVIDENCE_DIR:-docs/cbc-evidence}/formal"
-	mkdir -p "$dir"
+	dir=$(python3 "$_CBC_EMBEDDED_DIR/../cbc-attributes.py" evidence-formal "$artifact") || return 3
+	mkdir -p "$dir" || return 3
 	id=$(printf '%s' "$artifact" | tr -c 'A-Za-z0-9' '-' | tr -s '-')
 	id="${id#-}"
 	id="${id%-}"
