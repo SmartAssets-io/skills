@@ -50,6 +50,7 @@ This skill requires explicit user invocation. It must not be triggered proactive
 
 **Accepted invocations:**
 - Claude/legacy surfaces: `/quick-commit` or `/git:commit`
+- Codex: `$git-commit`, `$quick-commit`, or a user-selected payload for either skill.
 - Pi slash commands: `/skill:git-commit`, `/git-commit`, or `/skill:quick-commit`
 - Pi selected-skill payloads: `<skill name="git-commit" ...>` or
   `<skill name="quick-commit" ...>` injected by the harness for this turn
@@ -60,12 +61,13 @@ This skill requires explicit user invocation. It must not be triggered proactive
 3. User explicitly invokes one of the accepted commit commands, or the harness
    injects this selected skill payload as the user's command for the turn
 
-**Validation:** Proceed when either condition is true:
+**Validation:** Proceed when one of these conditions is true:
 - the current user message contains an accepted commit command, such as
   `<command-name>/quick-commit</command-name>`,
   `<command-name>/git:commit</command-name>`,
   `<command-name>/skill:git-commit</command-name>`, or
   `<command-name>/git-commit</command-name>`.
+- Codex has supplied an accepted skill invocation or its selected-skill payload for this turn.
 - Pi has injected the selected skill payload for this turn, visible as
   `<skill name="git-commit" ...>` or `<skill name="quick-commit" ...>`.
 
@@ -74,6 +76,20 @@ payload. Do not proceed from ordinary prose such as "please commit" unless one
 of the accepted command or selected-skill signals above is present.
 
 ---
+
+## Runtime selection
+
+Select the workflow for the active runtime.
+In Pi, use the Pi structured workflow below.
+Its missing-tool rule applies only in Pi.
+In Codex and other non-Pi runtimes, use the Non-Pi workflow in the portable skill.
+Do not select a runtime from tool availability alone.
+
+The generated Pi skill excludes the Non-Pi workflow.
+If that workflow is absent outside Pi, report an incorrect skill installation.
+Install the portable skill from `sync-skills-to-github.sh` output before retrying.
+Do not install the generated Pi skill into a shared directory for other runtimes.
+Preserve the Pi guard requirements when the active runtime is Pi.
 
 ## Pi structured workflow
 
@@ -126,7 +142,11 @@ Ask the user to reload or restart Pi with the guard enabled.
 Do not use another tool to bypass the guard.
 
 <!-- non-pi-workflow:start -->
-The remaining sections apply to non-Pi harnesses.
+## Non-Pi workflow
+
+The remaining sections apply to Codex and other non-Pi runtimes.
+Use the bundled scripts relative to this skill directory.
+Run each script from the target repository to preserve its working directory.
 
 ---
 
